@@ -4,7 +4,7 @@
  * http://github.com/anakod/Sming
  * All files of the Sming Core are provided under the LGPL v3 license.
  *
- * SpiMaster.cpp
+ * Controller.cpp
  *
  * @author: 11 December 2018 - mikee47 <mike@sillyhouse.net>
  *
@@ -29,8 +29,8 @@
  *
  */
 
-#include "SpiMaster.h"
-#include "SpiDevice.h"
+#include <HSPI/Controller.h>
+#include <HSPI/Device.h>
 #include <esp_clk.h>
 #include <esp_systemapi.h>
 #include <espinc/spi_register.h>
@@ -38,7 +38,9 @@
 #include <espinc/pin_mux_register.h>
 #include <Platform/Timers.h>
 
-volatile SpiStats SpiMaster::stats;
+namespace HSPI
+{
+volatile Stats Controller::stats;
 
 // GPIO pin numbers for SPI
 #define PIN_SPI_CS2 0
@@ -70,9 +72,9 @@ volatile SpiStats SpiMaster::stats;
 // SPI FIFO
 #define SPI_BUFSIZE sizeof(SPI1.data_buf)
 
-/* SpiMaster */
+/* Controller */
 
-void SpiMaster::begin(SpiPinSet pinSet)
+void Controller::begin(PinSet pinSet)
 {
 	// Don't proceed unless hardware configuration is being changed
 	if(this->pinSet == pinSet) {
@@ -86,7 +88,7 @@ void SpiMaster::begin(SpiPinSet pinSet)
 	//	SPIUMOSI | SPIUDUPLEX; // | SPIUSSE;
 
 	switch(pinSet) {
-	case SPI_PINS_OVERLAP:
+	case PinSet::Overlap:
 		SET_PERI_REG_MASK(HOST_INF_SEL, PERI_IO_CSPI_OVERLAP);
 
 		// Enable Hardware CS
@@ -106,8 +108,8 @@ void SpiMaster::begin(SpiPinSet pinSet)
 		//		SPI1.ctrl2.X_setup_time = 2;
 		break;
 
-	case SPI_PINS_NORMAL_CS_AUTO:
-	case SPI_PINS_NORMAL_CS_MANUAL:
+	case PinSet::Normal_CS_Auto:
+	case PinSet::Normal_CS_Manual:
 		PIN_FUNC_SELECT(PERIPHS_GPIO_MUX_REG(PIN_HSPI_MISO), FUNC_HSPIQ_MISO); // HSPIQ MISO == GPIO12
 		PIN_FUNC_SELECT(PERIPHS_GPIO_MUX_REG(PIN_HSPI_MOSI), FUNC_HSPID_MOSI); // HSPID MOSI == GPIO13
 		PIN_FUNC_SELECT(PERIPHS_GPIO_MUX_REG(PIN_HSPI_CLK), FUNC_HSPI_CLK);	// CLK		 == GPIO14
@@ -116,7 +118,7 @@ void SpiMaster::begin(SpiPinSet pinSet)
 		SPI1.pin.cs1_dis = 1;
 		SPI1.pin.cs2_dis = 1;
 
-		if(pinSet == SPI_PINS_NORMAL_CS_AUTO) {
+		if(pinSet == PinSet::Normal_CS_Auto) {
 			// Enable hardware CS
 			PIN_FUNC_SELECT(PERIPHS_GPIO_MUX_REG(PIN_HSPI_CS), FUNC_HSPI_CS0); // HSPICS == GPIO15
 			CLEAR_PERI_REG_MASK(PERIPHS_IO_MUX_CONF_U, SPI1_CLK_EQU_SYS_CLK);
@@ -129,7 +131,7 @@ void SpiMaster::begin(SpiPinSet pinSet)
 		}
 		break;
 
-	case SPI_PINS_NONE:
+	case PinSet::None:
 	default:
 		return; // Do nothing
 	}
@@ -159,7 +161,7 @@ void SpiMaster::begin(SpiPinSet pinSet)
 	ETS_SPI_INTR_ENABLE();
 }
 
-void IRAM_ATTR SpiMaster::isr(SpiMaster* spi)
+void IRAM_ATTR Controller::isr(Controller* spi)
 {
 	if(READ_PERI_REG(DPORT_SPI_INT_STATUS_REG) & DPORT_SPI_INT_STATUS_SPI1) {
 		SPI1.slave.trans_done = 0;
@@ -171,17 +173,17 @@ void IRAM_ATTR SpiMaster::isr(SpiMaster* spi)
 	//    }
 }
 
-void SpiMaster::end()
+void Controller::end()
 {
 	switch(pinSet) {
-	case SPI_PINS_NORMAL_CS_AUTO:
-	case SPI_PINS_NORMAL_CS_MANUAL:
+	case PinSet::Normal_CS_Auto:
+	case PinSet::Normal_CS_Manual:
 		PIN_FUNC_SELECT(PERIPHS_GPIO_MUX_REG(PIN_HSPI_CLK), FUNC_GPIO14);
 		PIN_FUNC_SELECT(PERIPHS_GPIO_MUX_REG(PIN_HSPI_MISO), FUNC_GPIO12);
 		PIN_FUNC_SELECT(PERIPHS_GPIO_MUX_REG(PIN_HSPI_MOSI), FUNC_GPIO13);
 
 		// Disable hardware CS
-		if(pinSet == SPI_PINS_NORMAL_CS_AUTO) {
+		if(pinSet == PinSet::Normal_CS_Auto) {
 			SPI1.pin.cs0_dis = 1;
 			SPI1.pin.cs1_dis = 1;
 			SPI1.pin.cs2_dis = 1;
@@ -191,7 +193,7 @@ void SpiMaster::end()
 		}
 		break;
 
-	case SPI_PINS_OVERLAP:
+	case PinSet::Overlap:
 		// Disable HSPI overlap
 		CLEAR_PERI_REG_MASK(HOST_INF_SEL, PERI_IO_CSPI_OVERLAP);
 
@@ -207,11 +209,11 @@ void SpiMaster::end()
 		SPI1.user.cs_hold = 0;
 		break;
 
-	case SPI_PINS_NONE:
+	case PinSet::None:
 	default:; // Do nothing
 	}
 
-	pinSet = SPI_PINS_NONE;
+	pinSet = PinSet::None;
 }
 
 static uint32_t getClockFrequency(const spi_dev_t::clock_t clk)
@@ -219,12 +221,12 @@ static uint32_t getClockFrequency(const spi_dev_t::clock_t clk)
 	return APB_CLK_FREQ / ((clk.clkdiv_pre + 1) * (clk.clkcnt_n + 1));
 }
 
-uint32_t SpiMaster::clkRegToFreq(uint32_t regVal)
+uint32_t Controller::clkRegToFreq(uint32_t regVal)
 {
 	return getClockFrequency({val: regVal});
 }
 
-uint32_t SpiMaster::frequencyToClkReg(uint32_t freq)
+uint32_t Controller::frequencyToClkReg(uint32_t freq)
 {
 	if(freq >= APB_CLK_FREQ) {
 		return SPI_CLK_EQU_SYSCLK;
@@ -325,7 +327,7 @@ uint32_t SpiMaster::frequencyToClkReg(uint32_t freq)
  *  transfers which require splitting out over multiple packets.
  *
  */
-void SpiMaster::execute(SpiPacket& packet)
+void Controller::execute(Packet& packet)
 {
 	packet.next = nullptr;
 	packet.busy = 1;
@@ -354,7 +356,7 @@ void SpiMaster::execute(SpiPacket& packet)
 	}
 }
 
-void IRAM_ATTR SpiMaster::startPacket()
+void IRAM_ATTR Controller::startPacket()
 {
 	TESTPIN_TOGGLE();
 
@@ -385,7 +387,7 @@ void IRAM_ATTR SpiMaster::startPacket()
 			ioMux &= ~SPI1_CLK_EQU_SYS_CLK;
 
 			// In overlap mode, SPI0 sysclock selection overrides SPI1
-			if(!spi0ClockChanged && pinSet == SPI_PINS_OVERLAP) {
+			if(!spi0ClockChanged && pinSet == PinSet::Overlap) {
 				if(ioMux & SPI0_CLK_EQU_SYS_CLK) {
 					spi_dev_t::clock_t div2{{
 						.clkcnt_l = 1,
@@ -416,12 +418,12 @@ void IRAM_ATTR SpiMaster::startPacket()
 /** @brief called from ISR
  *  @retval bool true when transaction has finished
  */
-void IRAM_ATTR SpiMaster::transfer()
+void IRAM_ATTR Controller::transfer()
 {
 	TESTPIN_LOW();
 	TESTPIN_HIGH();
 
-	SpiPacket& packet = *trans.packet;
+	Packet& packet = *trans.packet;
 
 	// Read incoming data
 	if(trans.inlen) {
@@ -558,3 +560,5 @@ void IRAM_ATTR SpiMaster::transfer()
 
 	++stats.transCount;
 }
+
+} // namespace HSPI

@@ -4,7 +4,7 @@
  * http://github.com/anakod/Sming
  * All files of the Sming Core are provided under the LGPL v3 license.
  *
- * SpiMaster.h
+ * Controller.h
  *
  * @author: 11 December 2018 - mikee47 <mike@sillyhouse.net>
  *
@@ -12,7 +12,7 @@
  *
  * The ESP8266 SPI hardware is capable of very high transfer speeds and has a number of
  * features which require a more flexible driver to take advantage of. This module,
- * together with SpiDevice, provide the following features:
+ * together with Device, provide the following features:
  *
  *  - Support multiple slave devices sharing the same bus
  * 	- Custom CS multiplexing supported via callbacks. For example, routing CS2 via HC138
@@ -32,7 +32,7 @@
  *
  * # Transactions
  *
- * Applications call SpiMaster to perform a transfer, or sequence of transfers, as follows:
+ * Applications call Controller to perform a transfer, or sequence of transfers, as follows:
  *
  *	- Session setup
  *		- Wait for any HSPI transaction to complete (WAIT_READY)
@@ -79,7 +79,9 @@
 #include <stdint.h>
 #include <esp_attr.h>
 
-class SpiDevice;
+namespace HSPI
+{
+class Device;
 
 //#define SPI_DEBUG  1
 
@@ -88,11 +90,11 @@ class SpiDevice;
 #undef SPI_MODE2
 #undef SPI_MODE3
 
-enum SpiMode : uint8_t {
-	SPI_MODE0 = 0x00, ///<  CPOL: 0  CPHA: 0
-	SPI_MODE1 = 0x01, ///<  CPOL: 0  CPHA: 1
-	SPI_MODE2 = 0x10, ///<  CPOL: 1  CPHA: 0
-	SPI_MODE3 = 0x11, ///<  CPOL: 1  CPHA: 1
+enum Mode : uint8_t {
+	Mode0 = 0x00, ///<  CPOL: 0  CPHA: 0
+	Mode1 = 0x01, ///<  CPOL: 0  CPHA: 1
+	Mode2 = 0x10, ///<  CPOL: 1  CPHA: 0
+	Mode3 = 0x11, ///<  CPOL: 1  CPHA: 1
 };
 
 /*
@@ -100,8 +102,8 @@ enum SpiMode : uint8_t {
  */
 
 // 0 for LSBFIRST, non-zero for MSBFIRST
-using SpiByteOrder = uint8_t;
-using SpiBitOrder = uint8_t;
+using ByteOrder = uint8_t;
+using BitOrder = uint8_t;
 
 /** @brief How SPI hardware pins are connected
  *  @note
@@ -112,11 +114,11 @@ using SpiBitOrder = uint8_t;
  * 		Overlap: MISO = SD0, MOSI = SDD1, SCLK = CLK
  * 			CS = CS2, always managed by hardware
  */
-enum SpiPinSet {
-	SPI_PINS_NONE,
-	SPI_PINS_NORMAL_CS_AUTO,
-	SPI_PINS_NORMAL_CS_MANUAL,
-	SPI_PINS_OVERLAP,
+enum class PinSet {
+	None,
+	Normal_CS_Auto,
+	Normal_CS_Manual,
+	Overlap,
 };
 
 /** @brief Data can be specified directly within SpiPacket, or as a buffer reference
@@ -131,7 +133,7 @@ enum SpiPinSet {
  *  can be added as a device parameter. This may not necessarily be the same as the SPI byte order.
  *
  */
-struct SpiData {
+struct Data {
 	union {
 		uint8_t data8;
 		uint16_t data16;
@@ -144,7 +146,7 @@ struct SpiData {
 	uint16_t length : 15;   ///< Number of bytes of data
 	uint16_t isPointer : 1; ///< If set, data is referenced indirectly, otherwise it's stored directly
 
-	SpiData()
+	Data()
 	{
 		clear();
 	}
@@ -185,10 +187,10 @@ struct SpiData {
 	}
 };
 
-struct SpiPacket;
+struct Packet;
 
 /** @brief SPI callback routine */
-typedef void (*SpiCallback)(SpiPacket& packet);
+typedef void (*Callback)(Packet& packet);
 
 /** @brief Defines an SPI transaction packet
  *  @todo SPI Master can keep a list of these to allow queueing of transfers
@@ -202,23 +204,23 @@ typedef void (*SpiCallback)(SpiPacket& packet);
  *  might use two packets for transmit, so that one can be set up while the other is in flight.
  *  That way the setup latency between SPI transactions is minimised for maximum throughput.
  */
-struct SpiPacket {
-	SpiDevice* device{nullptr};	///< SPI device for this packet
-	SpiPacket* next{nullptr};	  ///< SPI master uses this to chain requests
-	uint16_t cmd{0};			   ///< Command value
-	uint8_t cmdLen{0};			   ///< Command bits, 0 - 16
-	uint8_t duplex : 1;			   ///< Set for 4-wire bi-directional transfer
-	uint8_t async : 1;			   ///< Set for asynchronous operation
-	volatile uint8_t busy : 1;	 ///< Packet in use
-	uint32_t addr{0};			   ///< Address value
-	uint8_t addrLen{0};			   ///< Address bits, 0 - 32
-	uint8_t dummyLen{0};		   ///< Dummy read bits between address and read data, 0 - 255
-	SpiData out;				   ///< Outgoing data
-	SpiData in;					   ///< Incoming data
-	SpiCallback callback{nullptr}; ///< Completion routine
-	void* param{nullptr};		   ///< User parameter
+struct Packet {
+	Device* device{nullptr};	///< SPI device for this packet
+	Packet* next{nullptr};		///< SPI master uses this to chain requests
+	uint16_t cmd{0};			///< Command value
+	uint8_t cmdLen{0};			///< Command bits, 0 - 16
+	uint8_t duplex : 1;			///< Set for 4-wire bi-directional transfer
+	uint8_t async : 1;			///< Set for asynchronous operation
+	volatile uint8_t busy : 1;  ///< Packet in use
+	uint32_t addr{0};			///< Address value
+	uint8_t addrLen{0};			///< Address bits, 0 - 32
+	uint8_t dummyLen{0};		///< Dummy read bits between address and read data, 0 - 255
+	Data out;					///< Outgoing data
+	Data in;					///< Incoming data
+	Callback callback{nullptr}; ///< Completion routine
+	void* param{nullptr};		///< User parameter
 
-	SpiPacket() : duplex(0), async(0), busy(0)
+	Packet() : duplex(0), async(0), busy(0)
 	{
 	}
 
@@ -264,13 +266,13 @@ struct SpiPacket {
  uint8_t inPtr: 1;
  uint8_t outPtr: 1;
  uint8_t dummyLen;  ///< Dummy read bits between address and read data, 0 - 255
- SpiData out; ///< Outgoing data (32 bits)
- SpiData in;		   ///< Incoming data (32 bits)
+ Data out; ///< Outgoing data (32 bits)
+ Data in;		   ///< Incoming data (32 bits)
  SpiCallback callback; ///< Completion routine
  };
  */
 
-struct SpiStats {
+struct Stats {
 	uint32_t waitCycles;
 	uint32_t transCount;
 
@@ -310,7 +312,7 @@ inline uint32_t bswap32(uint32_t data)
  *  len Length of data to be sent, since the SPI peripheral sends from the MSB,
  *  this helps to shift the data to the MSB.
  */
-inline uint32_t spiSwapDataTx(uint32_t data, uint8_t len)
+inline uint32_t swapDataTx(uint32_t data, uint8_t len)
 {
 	return bswap32(data << (32 - len));
 }
@@ -326,31 +328,31 @@ inline uint32_t spiSwapDataTx(uint32_t data, uint8_t len)
  * @param len Length of data received, since the SPI peripheral writes from
  *      the MSB, this helps to shift the data to the LSB.
  */
-inline uint32_t spiSwapDataRx(uint32_t data, uint8_t len)
+inline uint32_t swapDataRx(uint32_t data, uint8_t len)
 {
 	return bswap32(data) >> (32 - len);
 }
 
-class SpiMaster
+class Controller
 {
 public:
 	/** @brief  Instantiate hardware SPI object
 	 *  @addtogroup hw_spi
 	 *  @{
 	 */
-	SpiMaster()
+	Controller()
 	{
 	}
 
-	virtual ~SpiMaster()
+	virtual ~Controller()
 	{
 	}
 
 	/* @brief Initializes the HSPI controller using the specified set of pins
-	 * @param pinSet Which set of pins to use (see SpiPinSet definition)
+	 * @param pinSet Which set of pins to use (see PinSet definition)
 	 * @note MUST only be called once
 	 */
-	void begin(SpiPinSet pinSet);
+	void begin(PinSet pinSet);
 
 	/** @brief Disables HSPI controller
 	 * 	@note Reverts HSPI pins to GPIO and disables the controller
@@ -374,12 +376,12 @@ public:
 	 */
 	virtual uint32_t clkRegToFreq(uint32_t regVal);
 
-	static volatile SpiStats stats;
+	static volatile Stats stats;
 
 protected:
-	friend SpiDevice;
+	friend Device;
 
-	virtual void execute(SpiPacket& packet);
+	virtual void execute(Packet& packet);
 
 	/** @brief get an empty packet ready for a new request
 	 *  @param wait if true, will block until a packet becomes free, if false will return nullptr immediately
@@ -391,11 +393,11 @@ protected:
 	 *  Consider making the packet a class, so it can be overridden for custom behaviour. Not sure what
 	 *  that behaviour might be though...
 	 */
-	SpiPacket* getPacket(bool wait = true);
+	Packet* getPacket(bool wait = true);
 
 private:
 	/** @brief Transfer up to SPI_FIFO_LEN bytes */
-	static void IRAM_ATTR isr(SpiMaster* spi);
+	static void IRAM_ATTR isr(Controller* spi);
 	/** @brief Start transfer of a new packet (trans.packet)
 	 *  @note May be called from interrupt context at completion of previous transfer
 	 */
@@ -406,20 +408,22 @@ private:
 	 */
 	void IRAM_ATTR transfer();
 
-	SpiPinSet pinSet = SPI_PINS_NONE;
-	SpiDevice* activeDevice = nullptr;
+	PinSet pinSet = PinSet::None;
+	Device* activeDevice = nullptr;
 	bool spi0ClockChanged = false;
 
 	// State of the current transaction in progress
 	struct Transaction {
-		SpiPacket* packet;   ///< The packet being executed
+		Packet* packet;		 ///< The packet being executed
 		uint16_t addrOffset; ///< Address for next transfer, added to packet start address
 		uint16_t outOffset;  ///< Where to read data for next outgoing transfer
 		uint16_t inOffset;   ///< Where to write data from current transfer when it arrives
 		uint8_t inlen;		 ///< Incoming data for current transfer
 		// Flags
-		SpiBitOrder bitOrder : 1;
+		BitOrder bitOrder : 1;
 		volatile uint8_t busy : 1;
 	};
 	Transaction trans{};
 };
+
+} // namespace HSPI

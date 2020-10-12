@@ -4,7 +4,7 @@
  * http://github.com/anakod/Sming
  * All files of the Sming Core are provided under the LGPL v3 license.
  *
- * SpiDevice.h
+ * Device.h
  *
  * @author: 11 December 2018 - mikee47 <mike@sillyhouse.net>
  *
@@ -27,17 +27,19 @@
 
 #pragma once
 
-#include "SpiMaster.h"
+#include "Controller.h"
 #include <WConstants.h>
 
-class SpiDevice
+namespace HSPI
+{
+class Device
 {
 public:
-	SpiDevice()
+	Device()
 	{
 	}
 
-	virtual ~SpiDevice()
+	virtual ~Device()
 	{
 	}
 
@@ -45,9 +47,9 @@ public:
 	 *  @param spi
 	 *  @note Call this before setting clock speed or starting any transactions
 	 */
-	void begin(SpiMaster* spi)
+	void begin(Controller* controller)
 	{
-		this->spi = spi;
+		this->controller = controller;
 	}
 
 	/** @brief Set maximum operating speed for device
@@ -55,12 +57,12 @@ public:
 	 */
 	void setSpeed(uint32_t speed)
 	{
-		clockReg = spi->frequencyToClkReg(speed);
+		clockReg = controller->frequencyToClkReg(speed);
 	}
 
 	uint32_t getSpeed()
 	{
-		return spi->clkRegToFreq(clockReg);
+		return controller->clkRegToFreq(clockReg);
 	}
 
 	uint32_t getClockReg()
@@ -72,36 +74,36 @@ public:
 	 * Byte ordering is consistent with processor, i.e. always LSB first, but bit ordering
 	 * is variable.
 	 */
-	void setBitOrder(SpiBitOrder bitOrder)
+	void setBitOrder(BitOrder bitOrder)
 	{
 		this->bitOrder = bitOrder;
 	}
 
-	SpiBitOrder getBitOrder()
+	BitOrder getBitOrder()
 	{
 		return bitOrder;
 	}
 
-	void setMode(SpiMode mode)
+	void setMode(Mode mode)
 	{
 		this->mode = mode;
 	}
 
-	SpiMode getMode()
+	Mode getMode()
 	{
 		return mode;
 	};
 
-	void execute(SpiPacket& packet)
+	void execute(Packet& packet)
 	{
 		packet.device = this;
-		spi->execute(packet);
+		controller->execute(packet);
 	}
 
 protected:
-	friend SpiMaster;
+	friend Controller;
 
-	virtual void transferComplete(SpiPacket& packet)
+	virtual void transferComplete(Packet& packet)
 	{
 		if(packet.callback) {
 			packet.callback(packet);
@@ -109,8 +111,10 @@ protected:
 	}
 
 private:
-	SpiMaster* spi{nullptr};
+	Controller* controller{nullptr};
 	uint32_t clockReg{0}; ///< Computed value for a given bus speed
-	SpiBitOrder bitOrder{MSBFIRST};
-	SpiMode mode{SPI_MODE0};
+	BitOrder bitOrder{MSBFIRST};
+	Mode mode{Mode0};
 };
+
+} // namespace HSPI
