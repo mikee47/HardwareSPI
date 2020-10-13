@@ -35,7 +35,7 @@ namespace HSPI
 class Device
 {
 public:
-	Device()
+	Device(Controller& controller) : controller(controller)
 	{
 	}
 
@@ -43,26 +43,17 @@ public:
 	{
 	}
 
-	/** @brief Initialise the device but don't perform any transactions
-	 *  @param spi
-	 *  @note Call this before setting clock speed or starting any transactions
-	 */
-	void begin(Controller* controller)
-	{
-		this->controller = controller;
-	}
-
 	/** @brief Set maximum operating speed for device
 	 *  @param speed in Hz
 	 */
 	void setSpeed(uint32_t speed)
 	{
-		clockReg = controller->frequencyToClkReg(speed);
+		clockReg = controller.frequencyToClkReg(speed);
 	}
 
 	uint32_t getSpeed()
 	{
-		return controller->clkRegToFreq(clockReg);
+		return controller.clkRegToFreq(clockReg);
 	}
 
 	uint32_t getClockReg()
@@ -97,7 +88,7 @@ public:
 	void execute(Packet& packet)
 	{
 		packet.device = this;
-		controller->execute(packet);
+		controller.execute(packet);
 	}
 
 protected:
@@ -111,7 +102,7 @@ protected:
 	}
 
 private:
-	Controller* controller{nullptr};
+	Controller& controller;
 	uint32_t clockReg{0}; ///< Computed value for a given bus speed
 	BitOrder bitOrder{MSBFIRST};
 	Mode mode{Mode0};
