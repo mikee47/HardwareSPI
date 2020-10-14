@@ -75,15 +75,25 @@ public:
 		return bitOrder;
 	}
 
-	void setMode(Mode mode)
+	void setClockMode(ClockMode mode)
 	{
-		this->mode = mode;
+		clockMode = mode;
 	}
 
-	Mode getMode()
+	ClockMode getClockMode() const
 	{
-		return mode;
+		return clockMode;
 	};
+
+	void setDataMode(DataMode mode)
+	{
+		dataMode = mode;
+	}
+
+	DataMode getDataMode() const
+	{
+		return dataMode;
+	}
 
 	void execute(Packet& packet)
 	{
@@ -105,7 +115,8 @@ private:
 	Controller& controller;
 	uint32_t clockReg{0}; ///< Computed value for a given bus speed
 	BitOrder bitOrder{MSBFIRST};
-	Mode mode{Mode0};
+	ClockMode clockMode{0};
+	DataMode dataMode{DataMode::Standard};
 };
 
 } // namespace HSPI

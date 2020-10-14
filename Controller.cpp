@@ -373,10 +373,14 @@ void IRAM_ATTR Controller::startPacket()
 		SPI1.user.wr_byte_order = (byteOrder == MSBFIRST) ? 1 : 0;
 		SPI1.user.rd_byte_order = (byteOrder == MSBFIRST) ? 1 : 0;
 
-		// Mode
-		auto mode = activeDevice->getMode();
-		SPI1.user.ck_out_edge = (mode & 0x01) ? 1 : 0; // CPHA
-		SPI1.pin.ck_idle_edge = (mode & 0x10) ? 1 : 0; // CPOL
+		// Data mode
+		auto dataMode = activeDevice->getDataMode();
+		SPI1.user.duplex = (dataMode == DataMode::Standard);
+
+		// Clock phase/polarity
+		auto clockMode = uint8_t(activeDevice->getClockMode());
+		SPI1.user.ck_out_edge = (clockMode & 0x01) ? 1 : 0; // CPHA
+		SPI1.pin.ck_idle_edge = (clockMode & 0x10) ? 1 : 0; // CPOL
 
 		// Clock
 		auto clockReg = activeDevice->getClockReg();
@@ -468,7 +472,6 @@ void IRAM_ATTR Controller::transfer()
 		spi_dev_t::user_t user;
 		spi_dev_t::user1_t user1;
 	} reg{SPI1.user.val, 0};
-	reg.user.duplex = packet.duplex;
 
 	// Setup command bits
 	if(packet.cmdLen != 0) {

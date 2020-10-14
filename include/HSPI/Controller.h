@@ -85,16 +85,24 @@ class Device;
 
 //#define SPI_DEBUG  1
 
-#undef SPI_MODE0
-#undef SPI_MODE1
-#undef SPI_MODE2
-#undef SPI_MODE3
-
-enum Mode : uint8_t {
+/**
+ * @brief SPI clock polarity (CPOL) and phase (CPHA)
+ */
+enum class ClockMode : uint8_t {
 	Mode0 = 0x00, ///<  CPOL: 0  CPHA: 0
 	Mode1 = 0x01, ///<  CPOL: 0  CPHA: 1
 	Mode2 = 0x10, ///<  CPOL: 1  CPHA: 0
 	Mode3 = 0x11, ///<  CPOL: 1  CPHA: 1
+};
+
+/**
+ * @brief Mode of data transfer
+ */
+enum class DataMode : uint8_t {
+	Standard,   ///< One bit per clock, MISO stage concurrent with MISO
+	HalfDuplex, ///< One bit per clock, MISO stage follows MOSI
+	Dual,		///< Two bits per clock
+	Quad,		///< Four bits per clock
 };
 
 /*
@@ -209,7 +217,6 @@ struct Packet {
 	Packet* next{nullptr};		///< SPI master uses this to chain requests
 	uint16_t cmd{0};			///< Command value
 	uint8_t cmdLen{0};			///< Command bits, 0 - 16
-	uint8_t duplex : 1;			///< Set for 4-wire bi-directional transfer
 	uint8_t async : 1;			///< Set for asynchronous operation
 	volatile uint8_t busy : 1;  ///< Packet in use
 	uint32_t addr{0};			///< Address value
@@ -220,7 +227,7 @@ struct Packet {
 	Callback callback{nullptr}; ///< Completion routine
 	void* param{nullptr};		///< User parameter
 
-	Packet() : duplex(0), async(0), busy(0)
+	Packet() : async(0), busy(0)
 	{
 	}
 
