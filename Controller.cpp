@@ -43,11 +43,12 @@ namespace HSPI
 volatile Stats Controller::stats;
 
 // GPIO pin numbers for SPI
-#define PIN_SPI_CS2 0
 #define PIN_HSPI_MISO 12
 #define PIN_HSPI_MOSI 13
 #define PIN_HSPI_CLK 14
-#define PIN_HSPI_CS 15
+#define PIN_HSPI_CS0 15
+#define PIN_SPI_CS1 1
+#define PIN_SPI_CS2 0
 
 /* SPI interrupt status register address definition for determining the interrupt source */
 #define DPORT_SPI_INT_STATUS_REG 0x3ff00020
@@ -74,10 +75,10 @@ volatile Stats Controller::stats;
 
 /* Controller */
 
-void Controller::begin(PinSet pinSet)
+void Controller::begin(PinSet pinSet, uint8_t cs)
 {
 	// Don't proceed unless hardware configuration is being changed
-	if(this->pinSet == pinSet) {
+	if(this->pinSet == pinSet && chipSelect == cs) {
 		return;
 	}
 
@@ -85,22 +86,14 @@ void Controller::begin(PinSet pinSet)
 	end();
 
 	SPI1.user.val = 0;
-	//	SPIUMOSI | SPIUDUPLEX; // | SPIUSSE;
 
 	switch(pinSet) {
 	case PinSet::Overlap:
 		SET_PERI_REG_MASK(HOST_INF_SEL, PERI_IO_CSPI_OVERLAP);
 
-		// Enable Hardware CS
-		PIN_FUNC_SELECT(PERIPHS_GPIO_MUX_REG(PIN_SPI_CS2), FUNC_SPICS2); // GPI0 to SPICS2 mode
-		SPI1.pin.cs0_dis = 1;
-		SPI1.pin.cs1_dis = 1;
-		SPI1.pin.cs2_dis = 0;
 		// Prioritise SPI over HSPI transactions
 		SPI0.ext3.int_hold_ena = 1;
 		SPI1.ext3.int_hold_ena = 3;
-		SPI1.user.cs_setup = 0; //1;
-		SPI1.user.cs_hold = 0;  //1;
 
 		// From ESP32 code: 'we do need at least one clock of hold time in most cases'
 		SPI1.ctrl2.val = 0;
@@ -108,43 +101,50 @@ void Controller::begin(PinSet pinSet)
 		//		SPI1.ctrl2.X_setup_time = 2;
 		break;
 
-	case PinSet::Normal_CS_Auto:
-	case PinSet::Normal_CS_Manual:
+	case PinSet::Normal:
 		PIN_FUNC_SELECT(PERIPHS_GPIO_MUX_REG(PIN_HSPI_MISO), FUNC_HSPIQ_MISO); // HSPIQ MISO == GPIO12
 		PIN_FUNC_SELECT(PERIPHS_GPIO_MUX_REG(PIN_HSPI_MOSI), FUNC_HSPID_MOSI); // HSPID MOSI == GPIO13
 		PIN_FUNC_SELECT(PERIPHS_GPIO_MUX_REG(PIN_HSPI_CLK), FUNC_HSPI_CLK);	// CLK		 == GPIO14
-
-		// CS setup
-		SPI1.pin.cs1_dis = 1;
-		SPI1.pin.cs2_dis = 1;
-
-		if(pinSet == PinSet::Normal_CS_Auto) {
-			// Enable hardware CS
-			PIN_FUNC_SELECT(PERIPHS_GPIO_MUX_REG(PIN_HSPI_CS), FUNC_HSPI_CS0); // HSPICS == GPIO15
-			CLEAR_PERI_REG_MASK(PERIPHS_IO_MUX_CONF_U, SPI1_CLK_EQU_SYS_CLK);
-			SPI1.pin.cs0_dis = 0;
-			SPI1.user.cs_setup = 1;
-			SPI1.user.cs_hold = 1;
-		} else {
-			SPI1.pin.cs0_dis = 1;
-			PIN_FUNC_SELECT(PERIPHS_GPIO_MUX_REG(PIN_HSPI_CS), FUNC_GPIO15);
-		}
-		break;
 
 	case PinSet::None:
 	default:
 		return; // Do nothing
 	}
 
+	// Enable Hardware CS
+	switch(cs) {
+	case 0:
+		PIN_FUNC_SELECT(PERIPHS_GPIO_MUX_REG(PIN_HSPI_CS0), FUNC_HSPI_CS0);
+		SPI1.pin.cs1_dis = 1;
+		SPI1.pin.cs2_dis = 1;
+		SPI1.pin.cs0_dis = 0;
+		break;
+	case 1:
+		PIN_FUNC_SELECT(PERIPHS_GPIO_MUX_REG(PIN_SPI_CS1), FUNC_SPICS1);
+		SPI1.pin.cs0_dis = 1;
+		SPI1.pin.cs2_dis = 1;
+		SPI1.pin.cs1_dis = 0;
+		break;
+	case 2:
+		PIN_FUNC_SELECT(PERIPHS_GPIO_MUX_REG(PIN_SPI_CS2), FUNC_SPICS2);
+		SPI1.pin.cs0_dis = 1;
+		SPI1.pin.cs1_dis = 1;
+		SPI1.pin.cs2_dis = 0;
+		break;
+	default:
+		SPI1.pin.cs0_dis = 1;
+		SPI1.pin.cs1_dis = 1;
+		SPI1.pin.cs2_dis = 1;
+	}
+
+	SPI1.user.cs_setup = 1;
+	SPI1.user.cs_hold = 1;
+
 	SPI1.ctrl.val = 0;
-	//	SPI1C = 0;
-	//	setFrequency(1000000); ///< 1MHz
-	//	SPI1.user1.usr_mosi_bitlen = 8 - 1;
-	//	SPI1.user1.usr_miso_bitlen = 8 - 1;
-	//	SPI1U1 = (7 << SPILMOSI) | (7 << SPILMISO);
 	SPI1.ctrl1.val = 0;
 
 	this->pinSet = pinSet;
+	chipSelect = cs;
 
 	// Configure interrupts
 
@@ -176,42 +176,29 @@ void IRAM_ATTR Controller::isr(Controller* spi)
 void Controller::end()
 {
 	switch(pinSet) {
-	case PinSet::Normal_CS_Auto:
-	case PinSet::Normal_CS_Manual:
+	case PinSet::Normal:
 		PIN_FUNC_SELECT(PERIPHS_GPIO_MUX_REG(PIN_HSPI_CLK), FUNC_GPIO14);
 		PIN_FUNC_SELECT(PERIPHS_GPIO_MUX_REG(PIN_HSPI_MISO), FUNC_GPIO12);
 		PIN_FUNC_SELECT(PERIPHS_GPIO_MUX_REG(PIN_HSPI_MOSI), FUNC_GPIO13);
-
-		// Disable hardware CS
-		if(pinSet == PinSet::Normal_CS_Auto) {
-			SPI1.pin.cs0_dis = 1;
-			SPI1.pin.cs1_dis = 1;
-			SPI1.pin.cs2_dis = 1;
-			GPIO_OUTPUT_SET(PIN_HSPI_CS, 1);
-			SPI1.user.cs_setup = 0;
-			SPI1.user.cs_hold = 0;
-		}
 		break;
 
 	case PinSet::Overlap:
 		// Disable HSPI overlap
 		CLEAR_PERI_REG_MASK(HOST_INF_SEL, PERI_IO_CSPI_OVERLAP);
 
-		// Disable hardware CS
-		SPI1.pin.cs0_dis = 1;
-		SPI1.pin.cs1_dis = 1;
-		SPI1.pin.cs2_dis = 1;
-		PIN_FUNC_SELECT(PERIPHS_GPIO_MUX_REG(PIN_SPI_CS2), FUNC_GPIO0);
 		// De-prioritise SPI vs HSPI
 		SPI0.ext3.int_hold_ena = 0;
 		SPI1.ext3.int_hold_ena = 0;
-		SPI1.user.cs_setup = 0;
-		SPI1.user.cs_hold = 0;
 		break;
 
 	case PinSet::None:
 	default:; // Do nothing
 	}
+
+	// Disable all hardware chip selects, but leave IO MUX settings unchanged to ensure they stay inactive
+	SPI1.pin.cs0_dis = 1;
+	SPI1.pin.cs1_dis = 1;
+	SPI1.pin.cs2_dis = 1;
 
 	pinSet = PinSet::None;
 }

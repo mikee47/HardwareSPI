@@ -123,10 +123,9 @@ using BitOrder = uint8_t;
  * 			CS = CS2, always managed by hardware
  */
 enum class PinSet {
-	None,
-	Normal_CS_Auto,
-	Normal_CS_Manual,
-	Overlap,
+	None,	///< Disabled
+	Normal,  ///< Standard HSPI pins
+	Overlap, ///< Overlapped with SPI 0
 };
 
 /** @brief Data can be specified directly within SpiPacket, or as a buffer reference
@@ -357,9 +356,10 @@ public:
 
 	/* @brief Initializes the HSPI controller using the specified set of pins
 	 * @param pinSet Which set of pins to use (see PinSet definition)
+	 * @param cs Chip Select
 	 * @note MUST only be called once
 	 */
-	void begin(PinSet pinSet);
+	void begin(PinSet pinSet, uint8_t cs);
 
 	/** @brief Disables HSPI controller
 	 * 	@note Reverts HSPI pins to GPIO and disables the controller
@@ -415,9 +415,10 @@ private:
 	 */
 	void IRAM_ATTR transfer();
 
-	PinSet pinSet = PinSet::None;
-	Device* activeDevice = nullptr;
-	bool spi0ClockChanged = false;
+	Device* activeDevice{nullptr};
+	PinSet pinSet{PinSet::None};
+	uint8_t chipSelect{255};
+	bool spi0ClockChanged{false};
 
 	// State of the current transaction in progress
 	struct Transaction {
