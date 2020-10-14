@@ -354,14 +354,11 @@ public:
 	{
 	}
 
-	/* @brief Initializes the HSPI controller using the specified set of pins
-	 * @param pinSet Which set of pins to use (see PinSet definition)
-	 * @param cs Chip Select
-	 * @note MUST only be called once
+	/* @brief Initialize the HSPI controller
 	 */
-	void begin(PinSet pinSet, uint8_t cs);
+	void begin();
 
-	/** @brief Disables HSPI controller
+	/** @brief Disable HSPI controller
 	 * 	@note Reverts HSPI pins to GPIO and disables the controller
 	 */
 	void end();
@@ -418,7 +415,15 @@ private:
 	Device* activeDevice{nullptr};
 	PinSet pinSet{PinSet::None};
 	uint8_t chipSelect{255};
-	bool spi0ClockChanged{false};
+	struct Flags {
+		bool spi0ClockChanged : 1;   ///< SPI0 clock MUX setting was changed for a transaction
+		bool hspiPinsConfigured : 1;		 ///< Standard HSPI pins were configured at some point
+		bool overlappedPinsConfigured : 1; ///< Overlapped pins were used at some point
+		bool cs0Configured: 1;
+		bool cs1Configured: 1;
+		bool cs2Configured: 1;
+	};
+	Flags flags{};
 
 	// State of the current transaction in progress
 	struct Transaction {

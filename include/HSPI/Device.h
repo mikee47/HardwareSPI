@@ -35,8 +35,11 @@ namespace HSPI
 class Device
 {
 public:
-	Device(Controller& controller) : controller(controller)
+	Device(Controller& controller, PinSet pinSet, uint8_t chipSelect)
+		: controller(controller), pinSet(pinSet), chipSelect(chipSelect)
 	{
+		// Set a default speed
+		setSpeed(1000000U);
 	}
 
 	virtual ~Device()
@@ -113,6 +116,8 @@ protected:
 
 private:
 	Controller& controller;
+	PinSet pinSet;
+	uint8_t chipSelect;
 	uint32_t clockReg{0}; ///< Computed value for a given bus speed
 	BitOrder bitOrder{MSBFIRST};
 	ClockMode clockMode{0};
