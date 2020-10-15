@@ -99,11 +99,15 @@ enum class ClockMode : uint8_t {
 /**
  * @brief Mode of data transfer
  */
-enum class DataMode : uint8_t {
-	Standard,   ///< One bit per clock, MISO stage concurrent with MISO
-	HalfDuplex, ///< One bit per clock, MISO stage follows MOSI
-	Dual,		///< Two bits per clock
-	Quad,		///< Four bits per clock
+enum class IoMode : uint8_t {
+	SPI,   ///< One bit per clock, MISO stage concurrent with MISO (full-duplex)
+	SPIHD, ///< One bit per clock, MISO stage follows MOSI (half-duplex)
+	SDI,   ///< Two bits per clock for Command, Address and Data
+	DIO,   ///< Two bits per clock for Address and Data, 1-bit for Command
+	DUAL,  ///< Two bits per clock for Data, 1-bit for Command and Address
+	SQI,   ///< Four bits per clock for Command, Address and Data
+	QIO,   ///< Four bits per clock for Address and Data, 1-bit for Command
+	QUAD,  ///< Four bits per clock  for Data, 1-bit for Command and Address
 };
 
 /*

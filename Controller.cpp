@@ -412,21 +412,33 @@ void IRAM_ATTR Controller::startPacket()
 		reg.user.rd_byte_order = (byteOrder == MSBFIRST) ? 1 : 0;
 
 		// Data mode
-		auto dataMode = activeDevice->getDataMode();
-		reg.user.duplex = (dataMode == DataMode::Standard);
-		switch(dataMode) {
-		case DataMode::Standard:
-		case DataMode::HalfDuplex:
+		auto ioMode = activeDevice->getIoMode();
+		reg.user.duplex = (ioMode == IoMode::SPI);
+		switch(ioMode) {
+		case IoMode::SPI:
+		case IoMode::SPIHD:
 			break;
-		case DataMode::Dual:
+		case IoMode::SDI:
+		case IoMode::DIO:
 			reg.ctrl.fastrd_mode = true;
 			reg.ctrl.fread_dio = true;
 			reg.user.fwrite_dio = true;
 			break;
-		case DataMode::Quad:
+		case IoMode::DUAL:
+			reg.ctrl.fastrd_mode = true;
+			reg.ctrl.fread_dual = true;
+			reg.user.fwrite_dual = true;
+			break;
+		case IoMode::SQI:
+		case IoMode::QIO:
 			reg.ctrl.fastrd_mode = true;
 			reg.ctrl.fread_qio = true;
 			reg.user.fwrite_qio = true;
+			break;
+		case IoMode::QUAD:
+			reg.ctrl.fastrd_mode = true;
+			reg.ctrl.fread_quad = true;
+			reg.user.fwrite_quad = true;
 			break;
 		default:
 			assert(false);

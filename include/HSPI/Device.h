@@ -88,14 +88,14 @@ public:
 		return clockMode;
 	};
 
-	void setDataMode(DataMode mode)
+	void setIoMode(IoMode mode)
 	{
-		dataMode = mode;
+		ioMode = mode;
 	}
 
-	DataMode getDataMode() const
+	IoMode getIoMode() const
 	{
-		return dataMode;
+		return ioMode;
 	}
 
 	void execute(Packet& packet)
@@ -121,7 +121,7 @@ private:
 	uint32_t clockReg; ///< Computed value for a given bus speed
 	BitOrder bitOrder{MSBFIRST};
 	ClockMode clockMode{0};
-	DataMode dataMode{DataMode::Standard};
+	IoMode ioMode{IoMode::SPI};
 };
 
 } // namespace HSPI
