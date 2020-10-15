@@ -115,8 +115,6 @@ void Controller::end()
 {
 	ETS_SPI_INTR_DISABLE();
 
-	configurePins(PinSet::None);
-
 	// Disable all hardware chip selects, but leave IO MUX settings unchanged to ensure they stay inactive
 	SPI1.pin.cs0_dis = 1;
 	SPI1.pin.cs1_dis = 1;
@@ -137,6 +135,91 @@ void Controller::end()
 	}
 }
 
+bool Controller::startDevice(Device& dev, PinSet pinSet, uint8_t chipSelect)
+{
+	if(dev.pinSet != PinSet::None) {
+		debug_e("SPI device already started at %u, CS #%u", unsigned(pinSet), chipSelect);
+		return false;
+	}
+
+	auto csMax = (pinSet == PinSet::Overlap) ? 2 : 0;
+	if(chipSelect > csMax) {
+		debug_e("SPI pinSet %u, CS #%u invalid", unsigned(pinSet), chipSelect);
+		return false;
+	}
+
+	if(chipSelectsInUse[chipSelect]) {
+		debug_e("SPI CS #%u in use", chipSelect);
+		return false;
+	}
+
+	switch(pinSet) {
+	case PinSet::Overlap:
+		if(overlapDevices++ == 0) {
+			// From ESP32 code: 'we do need at least one clock of hold time in most cases'
+			spi_dev_t::ctrl2_t ctrl2{};
+			//			ctrl2.miso_delay_mode = 3;
+			//			ctrl2.miso_delay_num = 4;
+			//			ctrl2.mosi_delay_mode = 3;
+			//			ctrl2.mosi_delay_num = 4;
+			//			ctrl2.cs_delay_mode = 1;
+			//			ctrl2.cs_delay_num = 4;
+			SPI1.ctrl2.val = ctrl2.val;
+		}
+		break;
+
+	case PinSet::Normal:
+		if(normalDevices++ == 0) {
+			PIN_FUNC_SELECT(PERIPHS_GPIO_MUX_REG(PIN_HSPI_MISO), FUNC_HSPIQ_MISO);
+			PIN_FUNC_SELECT(PERIPHS_GPIO_MUX_REG(PIN_HSPI_MOSI), FUNC_HSPID_MOSI);
+			PIN_FUNC_SELECT(PERIPHS_GPIO_MUX_REG(PIN_HSPI_CLK), FUNC_HSPI_CLK);
+		}
+		break;
+
+	case PinSet::None:
+	default:
+		return false;
+	}
+
+	dev.pinSet = pinSet;
+	dev.chipSelect = chipSelect;
+	chipSelectsInUse[chipSelect] = true;
+
+	debug_i("SPI pinSet %u, CS #%u acquired", unsigned(pinSet), chipSelect);
+	return true;
+}
+
+void Controller::stopDevice(Device& dev)
+{
+	switch(dev.pinSet) {
+	case PinSet::Overlap:
+		--overlapDevices;
+		break;
+
+	case PinSet::Normal:
+		--normalDevices;
+		if(normalDevices == 0) {
+			// Set any configured pins to GPIO
+			PIN_FUNC_SELECT(PERIPHS_GPIO_MUX_REG(PIN_HSPI_MISO), FUNC_GPIO12);
+			PIN_FUNC_SELECT(PERIPHS_GPIO_MUX_REG(PIN_HSPI_MOSI), FUNC_GPIO13);
+			PIN_FUNC_SELECT(PERIPHS_GPIO_MUX_REG(PIN_HSPI_CLK), FUNC_GPIO14);
+		}
+
+	case PinSet::None:
+	default:
+		return;
+	}
+
+	debug_i("SPI pinSet %u, CS #%u released", unsigned(dev.pinSet), dev.chipSelect);
+
+	if(dev.chipSelect < chipSelectsInUse.size()) {
+		chipSelectsInUse[dev.chipSelect] = false;
+	}
+
+	dev.pinSet = PinSet::None;
+	dev.chipSelect = 255;
+}
+
 void Controller::configurePins(PinSet pinSet)
 {
 	if(pinSet == activePinSet) {
@@ -153,51 +236,11 @@ void Controller::configurePins(PinSet pinSet)
 		SPI1.ext3.int_hold_ena = 0;
 	}
 
-	switch(pinSet) {
-	case PinSet::Overlap:
+	if(pinSet == PinSet::Overlap) {
 		SET_PERI_REG_MASK(HOST_INF_SEL, PERI_IO_CSPI_OVERLAP);
 		// Prioritise SPI over HSPI transactions
 		SPI0.ext3.int_hold_ena = 1;
 		SPI1.ext3.int_hold_ena = 3;
-
-		if(!flags.overlappedPinsConfigured) {
-			// From ESP32 code: 'we do need at least one clock of hold time in most cases'
-			spi_dev_t::ctrl2_t ctrl2{};
-			//			ctrl2.miso_delay_mode = 3;
-			//			ctrl2.miso_delay_num = 4;
-			//			ctrl2.mosi_delay_mode = 3;
-			//			ctrl2.mosi_delay_num = 4;
-			//			ctrl2.cs_delay_mode = 1;
-			//			ctrl2.cs_delay_num = 4;
-			SPI1.ctrl2.val = ctrl2.val;
-
-			flags.overlappedPinsConfigured = true;
-		}
-		break;
-
-	case PinSet::Normal:
-		if(!flags.hspiPinsConfigured) {
-			PIN_FUNC_SELECT(PERIPHS_GPIO_MUX_REG(PIN_HSPI_MISO), FUNC_HSPIQ_MISO);
-			PIN_FUNC_SELECT(PERIPHS_GPIO_MUX_REG(PIN_HSPI_MOSI), FUNC_HSPID_MOSI);
-			PIN_FUNC_SELECT(PERIPHS_GPIO_MUX_REG(PIN_HSPI_CLK), FUNC_HSPI_CLK);
-			flags.hspiPinsConfigured = true;
-		}
-		break;
-
-	case PinSet::None:
-		flags.overlappedPinsConfigured = false;
-
-		// Set any configured pins to GPIO
-		if(flags.hspiPinsConfigured) {
-			PIN_FUNC_SELECT(PERIPHS_GPIO_MUX_REG(PIN_HSPI_MISO), FUNC_GPIO12);
-			PIN_FUNC_SELECT(PERIPHS_GPIO_MUX_REG(PIN_HSPI_MOSI), FUNC_GPIO13);
-			PIN_FUNC_SELECT(PERIPHS_GPIO_MUX_REG(PIN_HSPI_CLK), FUNC_GPIO14);
-			flags.hspiPinsConfigured = false;
-		}
-		break;
-
-	default:
-		assert(false);
 	}
 
 	activePinSet = pinSet;

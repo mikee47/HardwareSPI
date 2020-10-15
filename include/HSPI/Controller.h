@@ -79,6 +79,7 @@
 #include <stdint.h>
 #include <esp_attr.h>
 #include "Request.h"
+#include <bitset>
 
 namespace HSPI
 {
@@ -218,6 +219,10 @@ public:
 	 */
 	void end();
 
+	bool startDevice(Device& dev, PinSet pinSet, uint8_t chipSelect);
+
+	void stopDevice(Device& dev);
+
 	/** @brief Determine the best clock register value for a desired bus frequency
 	 *  @param frequency Desired SPI clock frequency in Hz
 	 *  @retval uint32_t opaque 32-bit register setting value
@@ -264,10 +269,11 @@ private:
 
 	Device* activeDevice{nullptr};
 	PinSet activePinSet{PinSet::None};
+	uint8_t overlapDevices{0};
+	uint8_t normalDevices{0};
+	std::bitset<8> chipSelectsInUse;
 	struct Flags {
-		bool spi0ClockChanged : 1;		   ///< SPI0 clock MUX setting was changed for a transaction
-		bool hspiPinsConfigured : 1;	   ///< Standard HSPI pins were configured at some point
-		bool overlappedPinsConfigured : 1; ///< Overlapped pins were used at some point
+		bool spi0ClockChanged : 1; ///< SPI0 clock MUX setting was changed for a transaction
 		bool cs0Configured : 1;
 		bool cs1Configured : 1;
 		bool cs2Configured : 1;

@@ -18,9 +18,13 @@ public:
 		Sequential = 0x40,
 	};
 
-	void init()
+	bool begin(PinSet pinSet, uint8_t chipSelect)
 	{
-		setSpeed(10000000U);
+		if(!Device::begin(pinSet, chipSelect)) {
+			return false;
+		}
+
+		setSpeed(40000000U);
 		setBitOrder(MSBFIRST);
 		setClockMode(ClockMode::Mode0);
 
@@ -35,7 +39,9 @@ public:
 
 		debug_i("RDMR = 0x%08x", readMode());
 
-		setIoMode(IoMode::SQI);
+		//		setIoMode(IoMode::SQI);
+
+		return true;
 	}
 
 	/**

@@ -35,15 +35,25 @@ namespace HSPI
 class Device
 {
 public:
-	Device(Controller& controller, PinSet pinSet, uint8_t chipSelect)
-		: controller(controller), pinSet(pinSet), chipSelect(chipSelect)
+	Device(Controller& controller) : controller(controller)
 	{
 		// Set a default speed
 		setSpeed(1000000U);
 	}
 
+	bool begin(PinSet pinSet, uint8_t chipSelect)
+	{
+		return controller.startDevice(*this, pinSet, chipSelect);
+	}
+
+	void end()
+	{
+		controller.stopDevice(*this);
+	}
+
 	virtual ~Device()
 	{
+		end();
 	}
 
 	/** @brief Set maximum operating speed for device
@@ -116,7 +126,7 @@ protected:
 
 private:
 	Controller& controller;
-	PinSet pinSet;
+	PinSet pinSet{PinSet::None};
 	uint8_t chipSelect;
 	uint32_t clockReg; ///< Computed value for a given bus speed
 	BitOrder bitOrder{MSBFIRST};
