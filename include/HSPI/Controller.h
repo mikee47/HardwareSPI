@@ -198,6 +198,16 @@ inline uint32_t swapDataRx(uint32_t data, uint8_t len)
 class Controller
 {
 public:
+	struct Config {
+		bool dirty{true}; ///< Set when values require updating
+		// Pre-calculated register values - see updateConfig()
+		struct {
+			uint32_t user{0};
+			uint32_t ctrl{0};
+			uint32_t pin{0};
+		} reg;
+	};
+
 	/** @brief  Instantiate hardware SPI object
 	 *  @addtogroup hw_spi
 	 *  @{
@@ -222,6 +232,8 @@ public:
 	bool startDevice(Device& dev, PinSet pinSet, uint8_t chipSelect);
 
 	void stopDevice(Device& dev);
+
+	void configChanged(Device& dev);
 
 	/** @brief Determine the best clock register value for a desired bus frequency
 	 *  @param frequency Desired SPI clock frequency in Hz
@@ -248,7 +260,7 @@ protected:
 	virtual void execute(Request& request);
 
 private:
-	void configurePins(PinSet pinSet);
+	static void updateConfig(Device& dev);
 
 	/**
 	 * @brief Transfer up to SPI_FIFO_LEN bytes
@@ -274,9 +286,6 @@ private:
 	std::bitset<8> chipSelectsInUse;
 	struct Flags {
 		bool spi0ClockChanged : 1; ///< SPI0 clock MUX setting was changed for a transaction
-		bool cs0Configured : 1;
-		bool cs1Configured : 1;
-		bool cs2Configured : 1;
 	};
 	Flags flags{};
 

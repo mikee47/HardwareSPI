@@ -80,7 +80,10 @@ public:
 	 */
 	void setBitOrder(BitOrder bitOrder)
 	{
-		this->bitOrder = bitOrder;
+		if(this->bitOrder != bitOrder) {
+			this->bitOrder = bitOrder;
+			controller.configChanged(*this);
+		}
 	}
 
 	BitOrder getBitOrder()
@@ -90,7 +93,10 @@ public:
 
 	void setClockMode(ClockMode mode)
 	{
-		clockMode = mode;
+		if(clockMode != mode) {
+			clockMode = mode;
+			controller.configChanged(*this);
+		}
 	}
 
 	ClockMode getClockMode() const
@@ -100,7 +106,10 @@ public:
 
 	void setIoMode(IoMode mode)
 	{
-		ioMode = mode;
+		if(ioMode != mode) {
+			ioMode = mode;
+			controller.configChanged(*this);
+		}
 	}
 
 	IoMode getIoMode() const
@@ -126,9 +135,10 @@ protected:
 
 private:
 	Controller& controller;
+	Controller::Config config{}; ///< Private config used by Controller
+	uint32_t clockReg;			 ///< Computed value for a given bus speed
 	PinSet pinSet{PinSet::None};
-	uint8_t chipSelect;
-	uint32_t clockReg; ///< Computed value for a given bus speed
+	uint8_t chipSelect{255};
 	BitOrder bitOrder{MSBFIRST};
 	ClockMode clockMode{0};
 	IoMode ioMode{IoMode::SPI};

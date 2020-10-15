@@ -115,30 +115,19 @@ void Controller::end()
 {
 	ETS_SPI_INTR_DISABLE();
 
-	// Disable all hardware chip selects, but leave IO MUX settings unchanged to ensure they stay inactive
+	// Disable all hardware chip selects
 	SPI1.pin.cs0_dis = 1;
 	SPI1.pin.cs1_dis = 1;
 	SPI1.pin.cs2_dis = 1;
 
-	if(flags.cs0Configured) {
-		PIN_FUNC_SELECT(PERIPHS_GPIO_MUX_REG(PIN_HSPI_CS0), FUNC_GPIO15);
-		flags.cs0Configured = false;
-	}
-	if(flags.cs1Configured) {
-		PIN_FUNC_SELECT(PERIPHS_GPIO_MUX_REG(PIN_SPI_CS1), FUNC_GPIO1);
-		flags.cs1Configured = false;
-	}
-
-	if(flags.cs2Configured) {
-		PIN_FUNC_SELECT(PERIPHS_GPIO_MUX_REG(PIN_SPI_CS2), FUNC_GPIO0);
-		flags.cs2Configured = false;
-	}
+	// Check all devices have been released
+	assert(normalDevices == 0 && overlapDevices == 0);
 }
 
 bool Controller::startDevice(Device& dev, PinSet pinSet, uint8_t chipSelect)
 {
 	if(dev.pinSet != PinSet::None) {
-		debug_e("SPI device already started at %u, CS #%u", unsigned(pinSet), chipSelect);
+		debug_e("SPI device already started at %u, CS #%u", unsigned(dev.pinSet), dev.chipSelect);
 		return false;
 	}
 
@@ -181,9 +170,23 @@ bool Controller::startDevice(Device& dev, PinSet pinSet, uint8_t chipSelect)
 		return false;
 	}
 
+	// Enable Hardware CS
+	switch(chipSelect) {
+	case 0:
+		PIN_FUNC_SELECT(PERIPHS_GPIO_MUX_REG(PIN_HSPI_CS0), FUNC_HSPI_CS0);
+		break;
+	case 1:
+		PIN_FUNC_SELECT(PERIPHS_GPIO_MUX_REG(PIN_SPI_CS1), FUNC_SPICS1);
+		break;
+	case 2:
+		PIN_FUNC_SELECT(PERIPHS_GPIO_MUX_REG(PIN_SPI_CS2), FUNC_SPICS2);
+		break;
+	}
+
 	dev.pinSet = pinSet;
 	dev.chipSelect = chipSelect;
 	chipSelectsInUse[chipSelect] = true;
+	dev.config.dirty = true;
 
 	debug_i("SPI pinSet %u, CS #%u acquired", unsigned(pinSet), chipSelect);
 	return true;
@@ -193,10 +196,12 @@ void Controller::stopDevice(Device& dev)
 {
 	switch(dev.pinSet) {
 	case PinSet::Overlap:
+		assert(overlapDevices > 0);
 		--overlapDevices;
 		break;
 
 	case PinSet::Normal:
+		assert(normalDevices > 0);
 		--normalDevices;
 		if(normalDevices == 0) {
 			// Set any configured pins to GPIO
@@ -206,44 +211,40 @@ void Controller::stopDevice(Device& dev)
 		}
 
 	case PinSet::None:
-	default:
 		return;
+
+	default:
+		assert(false);
 	}
 
-	debug_i("SPI pinSet %u, CS #%u released", unsigned(dev.pinSet), dev.chipSelect);
+	auto cs = dev.chipSelect;
+	switch(cs) {
+	case 0:
+		PIN_FUNC_SELECT(PERIPHS_GPIO_MUX_REG(PIN_HSPI_CS0), FUNC_GPIO15);
+		break;
+	case 1:
+		PIN_FUNC_SELECT(PERIPHS_GPIO_MUX_REG(PIN_SPI_CS1), FUNC_GPIO1);
+		break;
+	case 2:
+		PIN_FUNC_SELECT(PERIPHS_GPIO_MUX_REG(PIN_SPI_CS2), FUNC_GPIO0);
+		break;
+	default:
+		assert(false);
+	}
 
-	if(dev.chipSelect < chipSelectsInUse.size()) {
-		chipSelectsInUse[dev.chipSelect] = false;
+	debug_i("SPI pinSet %u, CS #%u released", dev.pinSet, cs);
+
+	if(cs < chipSelectsInUse.size()) {
+		chipSelectsInUse[cs] = false;
 	}
 
 	dev.pinSet = PinSet::None;
 	dev.chipSelect = 255;
 }
 
-void Controller::configurePins(PinSet pinSet)
+void Controller::configChanged(Device& dev)
 {
-	if(pinSet == activePinSet) {
-		return;
-	}
-
-	debug_w("Configuring PinSet %u", unsigned(pinSet));
-
-	if(activePinSet == PinSet::Overlap) {
-		// Disable HSPI overlap
-		CLEAR_PERI_REG_MASK(HOST_INF_SEL, PERI_IO_CSPI_OVERLAP);
-		// De-prioritise SPI vs HSPI
-		SPI0.ext3.int_hold_ena = 0;
-		SPI1.ext3.int_hold_ena = 0;
-	}
-
-	if(pinSet == PinSet::Overlap) {
-		SET_PERI_REG_MASK(HOST_INF_SEL, PERI_IO_CSPI_OVERLAP);
-		// Prioritise SPI over HSPI transactions
-		SPI0.ext3.int_hold_ena = 1;
-		SPI1.ext3.int_hold_ena = 3;
-	}
-
-	activePinSet = pinSet;
+	dev.config.dirty = true;
 }
 
 static uint32_t getClockFrequency(const spi_dev_t::clock_t clk)
@@ -326,6 +327,99 @@ uint32_t Controller::frequencyToClkReg(uint32_t freq)
 	return bestReg.val;
 }
 
+void Controller::updateConfig(Device& dev)
+{
+	struct {
+		spi_dev_t::user_t user;
+		spi_dev_t::ctrl_t ctrl;
+		spi_dev_t::pin_t pin;
+	} reg;
+	reg.user.val = 0;
+	reg.user.cs_setup = true;
+	reg.user.cs_hold = true;
+	reg.ctrl.val = 0;
+	reg.ctrl.wp_reg = true;
+	reg.pin.val = 0;
+
+	// Enable Hardware CS
+	switch(dev.chipSelect) {
+	case 0:
+		reg.pin.cs1_dis = true;
+		reg.pin.cs2_dis = true;
+		reg.pin.cs0_dis = false;
+		break;
+	case 1:
+		reg.pin.cs0_dis = true;
+		reg.pin.cs2_dis = true;
+		reg.pin.cs1_dis = false;
+		break;
+	case 2:
+		reg.pin.cs0_dis = true;
+		reg.pin.cs1_dis = true;
+		reg.pin.cs2_dis = false;
+		break;
+	default:
+		// TODO: Call method for manual CS control, NON-OVERLAPPED mode ONLY!
+		reg.pin.cs0_dis = true;
+		reg.pin.cs1_dis = true;
+		reg.pin.cs2_dis = true;
+	}
+
+	// Bit order
+	auto bitOrder = dev.getBitOrder();
+	reg.ctrl.rd_bit_order = (bitOrder == MSBFIRST) ? 0 : 1;
+	reg.ctrl.wr_bit_order = (bitOrder == MSBFIRST) ? 0 : 1;
+
+	// Byte order
+	auto byteOrder = LSBFIRST;
+	reg.user.wr_byte_order = (byteOrder == MSBFIRST) ? 1 : 0;
+	reg.user.rd_byte_order = (byteOrder == MSBFIRST) ? 1 : 0;
+
+	// Data mode
+	auto ioMode = dev.getIoMode();
+	reg.user.duplex = (ioMode == IoMode::SPI);
+	switch(ioMode) {
+	case IoMode::SPI:
+	case IoMode::SPIHD:
+		break;
+	case IoMode::SDI:
+	case IoMode::DIO:
+		reg.ctrl.fastrd_mode = true;
+		reg.ctrl.fread_dio = true;
+		reg.user.fwrite_dio = true;
+		break;
+	case IoMode::DUAL:
+		reg.ctrl.fastrd_mode = true;
+		reg.ctrl.fread_dual = true;
+		reg.user.fwrite_dual = true;
+		break;
+	case IoMode::SQI:
+	case IoMode::QIO:
+		reg.ctrl.fastrd_mode = true;
+		reg.ctrl.fread_qio = true;
+		reg.user.fwrite_qio = true;
+		break;
+	case IoMode::QUAD:
+		reg.ctrl.fastrd_mode = true;
+		reg.ctrl.fread_quad = true;
+		reg.user.fwrite_quad = true;
+		break;
+	default:
+		assert(false);
+	}
+
+	// Clock phase/polarity
+	auto clockMode = uint8_t(dev.getClockMode());
+	reg.user.ck_out_edge = (clockMode & 0x01) ? 1 : 0; // CPHA
+	reg.pin.ck_idle_edge = (clockMode & 0x10) ? 1 : 0; // CPOL
+
+	auto& cfg = dev.config;
+	cfg.reg.user = reg.user.val;
+	cfg.reg.ctrl = reg.ctrl.val;
+	cfg.reg.pin = reg.pin.val;
+	cfg.dirty = false;
+}
+
 /*
  * OK, so we have two versions of execute() to deal with single FIFO and multiple. For longer
  * transactions we have some options:
@@ -357,10 +451,16 @@ uint32_t Controller::frequencyToClkReg(uint32_t freq)
  *  transfers which require splitting out over multiple packets.
  *
  */
-void Controller::execute(Request& packet)
+void Controller::execute(Request& req)
 {
-	packet.next = nullptr;
-	packet.busy = 1;
+	req.next = nullptr;
+	req.busy = 1;
+
+	auto dev = req.device;
+	if(dev->config.dirty) {
+		updateConfig(*dev);
+	}
+
 	// Packet transfer already in progress?
 	ETS_SPI_INTR_DISABLE();
 	if(trans.busy) {
@@ -369,17 +469,17 @@ void Controller::execute(Request& packet)
 		while(pkt->next) {
 			pkt = pkt->next;
 		}
-		pkt->next = &packet;
+		pkt->next = &req;
 	} else {
 		// Not currently running, so do this one now
-		trans.request = &packet;
+		trans.request = &req;
 		startRequest();
 	}
 	ETS_SPI_INTR_ENABLE();
 
-	if(!packet.async) {
+	if(!req.async) {
 		CpuCycleTimer timer;
-		while(packet.busy) {
+		while(req.busy) {
 			//
 		}
 		stats.waitCycles += timer.elapsedTicks();
@@ -393,109 +493,36 @@ void IRAM_ATTR Controller::startRequest()
 	if(trans.request->device != activeDevice) {
 		activeDevice = trans.request->device;
 
-		configurePins(activeDevice->pinSet);
+		auto pinSet = activeDevice->pinSet;
+		if(pinSet != activePinSet) {
+			debug_w("Configuring PinSet %u", unsigned(pinSet));
 
-		// Set register values here and write in one go
-		struct {
-			spi_dev_t::user_t user;
-			spi_dev_t::ctrl_t ctrl;
-			spi_dev_t::pin_t pin;
-		} reg;
-		reg.user.val = 0;
-		reg.user.cs_setup = true;
-		reg.user.cs_hold = true;
-		reg.ctrl.val = 0;
-		reg.ctrl.wp_reg = true;
-		reg.pin.val = 0;
+			if(activePinSet == PinSet::Overlap) {
+				// Disable HSPI overlap
+				CLEAR_PERI_REG_MASK(HOST_INF_SEL, PERI_IO_CSPI_OVERLAP);
+				// De-prioritise SPI vs HSPI
+				SPI0.ext3.int_hold_ena = 0;
+				SPI1.ext3.int_hold_ena = 0;
+			}
 
-		// Enable Hardware CS
-		switch(activeDevice->chipSelect) {
-		case 0:
-			if(!flags.cs0Configured) {
-				PIN_FUNC_SELECT(PERIPHS_GPIO_MUX_REG(PIN_HSPI_CS0), FUNC_HSPI_CS0);
-				flags.cs0Configured = true;
+			if(pinSet == PinSet::Overlap) {
+				SET_PERI_REG_MASK(HOST_INF_SEL, PERI_IO_CSPI_OVERLAP);
+				// Prioritise SPI over HSPI transactions
+				SPI0.ext3.int_hold_ena = 1;
+				SPI1.ext3.int_hold_ena = 3;
 			}
-			reg.pin.cs1_dis = true;
-			reg.pin.cs2_dis = true;
-			reg.pin.cs0_dis = false;
-			break;
-		case 1:
-			if(!flags.cs1Configured) {
-				PIN_FUNC_SELECT(PERIPHS_GPIO_MUX_REG(PIN_SPI_CS1), FUNC_SPICS1);
-				flags.cs1Configured = true;
-			}
-			reg.pin.cs0_dis = true;
-			reg.pin.cs2_dis = true;
-			reg.pin.cs1_dis = false;
-			break;
-		case 2:
-			if(!flags.cs2Configured) {
-				PIN_FUNC_SELECT(PERIPHS_GPIO_MUX_REG(PIN_SPI_CS2), FUNC_SPICS2);
-				flags.cs2Configured = true;
-			}
-			reg.pin.cs0_dis = true;
-			reg.pin.cs1_dis = true;
-			reg.pin.cs2_dis = false;
-			break;
-		default:
-			// TODO: Call method for manual CS control, NON-OVERLAPPED mode ONLY!
-			reg.pin.cs0_dis = true;
-			reg.pin.cs1_dis = true;
-			reg.pin.cs2_dis = true;
+
+			activePinSet = pinSet;
 		}
 
 		// Bit order
 		trans.bitOrder = activeDevice->getBitOrder();
-		reg.ctrl.rd_bit_order = (trans.bitOrder == MSBFIRST) ? 0 : 1;
-		reg.ctrl.wr_bit_order = (trans.bitOrder == MSBFIRST) ? 0 : 1;
 
-		// Byte order
-		auto byteOrder = LSBFIRST;
-		reg.user.wr_byte_order = (byteOrder == MSBFIRST) ? 1 : 0;
-		reg.user.rd_byte_order = (byteOrder == MSBFIRST) ? 1 : 0;
-
-		// Data mode
-		auto ioMode = activeDevice->getIoMode();
-		reg.user.duplex = (ioMode == IoMode::SPI);
-		switch(ioMode) {
-		case IoMode::SPI:
-		case IoMode::SPIHD:
-			break;
-		case IoMode::SDI:
-		case IoMode::DIO:
-			reg.ctrl.fastrd_mode = true;
-			reg.ctrl.fread_dio = true;
-			reg.user.fwrite_dio = true;
-			break;
-		case IoMode::DUAL:
-			reg.ctrl.fastrd_mode = true;
-			reg.ctrl.fread_dual = true;
-			reg.user.fwrite_dual = true;
-			break;
-		case IoMode::SQI:
-		case IoMode::QIO:
-			reg.ctrl.fastrd_mode = true;
-			reg.ctrl.fread_qio = true;
-			reg.user.fwrite_qio = true;
-			break;
-		case IoMode::QUAD:
-			reg.ctrl.fastrd_mode = true;
-			reg.ctrl.fread_quad = true;
-			reg.user.fwrite_quad = true;
-			break;
-		default:
-			assert(false);
-		}
-
-		// Clock phase/polarity
-		auto clockMode = uint8_t(activeDevice->getClockMode());
-		reg.user.ck_out_edge = (clockMode & 0x01) ? 1 : 0; // CPHA
-		reg.pin.ck_idle_edge = (clockMode & 0x10) ? 1 : 0; // CPOL
-
-		SPI1.ctrl.val = reg.ctrl.val;
+		auto& cfg = activeDevice->config;
+		SPI1.ctrl.val = cfg.reg.ctrl;
 		SPI1.ctrl1.val = 0;
-		SPI1.pin.val = reg.pin.val;
-		SPI1.user.val = reg.user.val;
+		SPI1.pin.val = cfg.reg.pin;
+		SPI1.user.val = cfg.reg.user;
 
 		// Clock
 		auto clockReg = activeDevice->getClockReg();
@@ -611,7 +638,7 @@ void IRAM_ATTR Controller::transfer()
 	}
 
 	// Setup address bits
-	if(packet.addrLen) {
+	if(packet.addrLen != 0) {
 		uint32_t addr = packet.addr + trans.addrOffset;
 		if(trans.bitOrder == MSBFIRST) {
 			// Address sent MSB to LSB of register value, so shift up as required
@@ -626,7 +653,7 @@ void IRAM_ATTR Controller::transfer()
 	}
 
 	// Setup dummy bits
-	if(packet.dummyLen) {
+	if(packet.dummyLen != 0) {
 		reg.user1.usr_dummy_cyclelen = packet.dummyLen - 1;
 		reg.user.usr_dummy = 1;
 	} else {
@@ -634,7 +661,7 @@ void IRAM_ATTR Controller::transfer()
 	}
 
 	// Setup outgoing data (MOSI)
-	if(outlen) {
+	if(outlen != 0) {
 		if(packet.out.isPointer) {
 			if(outlen > SPI_BUFSIZE) {
 				outlen = SPI_BUFSIZE;
@@ -651,7 +678,7 @@ void IRAM_ATTR Controller::transfer()
 	}
 
 	// Setup incoming data (MISO)
-	if(inlen) {
+	if(inlen != 0) {
 		if(inlen > SPI_BUFSIZE) {
 			inlen = SPI_BUFSIZE;
 		}
