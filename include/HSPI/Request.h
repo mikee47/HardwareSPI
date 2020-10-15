@@ -4,11 +4,11 @@
  * http://github.com/anakod/Sming
  * All files of the Sming Core are provided under the LGPL v3 license.
  *
- * Packet.h
+ * Request.h
  *
  * @author: 11 December 2018 - mikee47 <mike@sillyhouse.net>
  *
- * Definitions for an SPI packet containing data and settings for a transfer.
+ * Definitions for an SPI Request Packet containing data and settings for a transfer.
  * A single transfer may use 1 or more transactions.
  *
  */
@@ -26,16 +26,18 @@ namespace HSPI
 {
 class Device;
 
-/** @brief Data can be specified directly within SpiPacket, or as a buffer reference
- *  @note Regular SPI is full duplex, so we send the same number of bytes as we receive.
- *  We consider the command/address phases separately, because in master mode they're always a write operation.
- *  For dual/quad modes the bus is half-duplex, however like regular SPI a transaction is typically
- *  (but not always) either read OR write, not both.
- *  Therefore we need to cater for sending and receiving arbitrary numbers of bytes in a transaction,
- *  regardless of mode.
+/**
+ * @brief Data can be specified directly within `Data`, or as a buffer reference
+ * @note Regular SPI is full duplex, so we send the same number of bytes as we receive.
+ * We consider the command/address phases separately, because in master mode they're always a write operation.
+ * For dual/quad modes the bus is half-duplex, however like regular SPI a transaction is typically
+ * (but not always) either read OR write, not both.
+ * Therefore we need to cater for sending and receiving arbitrary numbers of bytes in a transaction,
+ * regardless of mode.
  *
- *  @todo Where 16/32-bit data is used we need to know what the slave device memory byte ordering is,
- *  can be added as a device parameter. This may not necessarily be the same as the SPI byte order.
+ * @note Command or address are stored in native byte order and rearranged according to the requested
+ * byteOrder setting. Data is always sent and received LSB first (as stored in memory) so any re-ordering
+ * must be done by the device or application.
  *
  */
 struct Data {
@@ -92,30 +94,30 @@ struct Data {
 	}
 };
 
-struct Packet;
+struct Request;
 
 /** @brief SPI callback routine */
-typedef void (*Callback)(Packet& packet);
+typedef void (*Callback)(Request& request);
 
-/** @brief Defines an SPI transaction packet
+/** @brief Defines an SPI Request Packet
  *  @todo SPI Master can keep a list of these to allow queueing of transfers
  *  Client still needs to deal with buffer allocation though, so may not be necessary as
  *  a better model is for device/client to queue another transaction via callback.
  *  At present we're looking just at address-based transactions.
  *
- *  Can add methods to this packet to make it easier to setup with various types of request.
+ *  Request fields may be accessed directly or by use of helper methods.
  *
- *  Note that we chain requests, but typically the chain will be short. A specific SPI driver
- *  might use two packets for transmit, so that one can be set up while the other is in flight.
- *  That way the setup latency between SPI transactions is minimised for maximum throughput.
+ *  Note that we chain requests, but typically the chain will be short.
+ *  For example, an application may use two Requests, so one can be prepared whilst the other
+ *  is in flight. This helps to minimises the setup latency between SPI transactions.
  */
-struct Packet {
-	Device* device{nullptr};	///< SPI device for this packet
-	Packet* next{nullptr};		///< SPI master uses this to chain requests
+struct Request {
+	Device* device{nullptr};	///< Target device for this request
+	Request* next{nullptr};		///< Controller uses this to chain requests
 	uint16_t cmd{0};			///< Command value
 	uint8_t cmdLen{0};			///< Command bits, 0 - 16
 	uint8_t async : 1;			///< Set for asynchronous operation
-	volatile uint8_t busy : 1;  ///< Packet in use
+	volatile uint8_t busy : 1;  ///< Request in progress
 	uint32_t addr{0};			///< Address value
 	uint8_t addrLen{0};			///< Address bits, 0 - 32
 	uint8_t dummyLen{0};		///< Dummy read bits between address and read data, 0 - 255
@@ -124,19 +126,20 @@ struct Packet {
 	Callback callback{nullptr}; ///< Completion routine
 	void* param{nullptr};		///< User parameter
 
-	Packet() : async(0), busy(0)
+	Request() : async(false), busy(false)
 	{
 	}
 
-	/** @brief MUST call this first before attempting to use a packet
-	 *  @note If the packet is already queued then this method will block until it's completed
+	/**
+	 * @brief MUST call this first before attempting to re-use a request
+	 * @note If the request is already queued then this method will block until it's completed
 	 */
 	void prepare()
 	{
 		while(busy) {
 			;
 		}
-		busy = 0;
+		busy = false;
 	}
 
 	void setCommand8(uint8_t command)
@@ -157,23 +160,5 @@ struct Packet {
 		addrLen = 24;
 	}
 };
-
-/*
- * Experimental re-ordering
- struct SpiPacket {
- uint32_t addr;	 ///< Address value
- uint16_t cmd;	  ///< Command value
- uint16_t outLen;
- uint16_t inLen;
- uint8_t cmdLen;	///< Command bits, 0 - 16
- uint8_t addrLen: 6;   ///< Address bits, 0 - 32
- uint8_t inPtr: 1;
- uint8_t outPtr: 1;
- uint8_t dummyLen;  ///< Dummy read bits between address and read data, 0 - 255
- Data out; ///< Outgoing data (32 bits)
- Data in;		   ///< Incoming data (32 bits)
- SpiCallback callback; ///< Completion routine
- };
- */
 
 } // namespace HSPI

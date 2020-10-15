@@ -78,7 +78,7 @@
 
 #include <stdint.h>
 #include <esp_attr.h>
-#include "Packet.h"
+#include "Request.h"
 
 namespace HSPI
 {
@@ -240,32 +240,25 @@ public:
 protected:
 	friend Device;
 
-	virtual void execute(Packet& packet);
-
-	/** @brief get an empty packet ready for a new request
-	 *  @param wait if true, will block until a packet becomes free, if false will return nullptr immediately
-	 *  @retval SpiPacket*
-	 *  @note packets are all pre-allocated
-	 *  until one becomes available.
-	 *
-	 *  Packets don't have to be obtained here, but having a central allocation is more efficient.
-	 *  Consider making the packet a class, so it can be overridden for custom behaviour. Not sure what
-	 *  that behaviour might be though...
-	 */
-	Packet* getPacket(bool wait = true);
+	virtual void execute(Request& request);
 
 private:
 	void configurePins(PinSet pinSet);
 
-	/** @brief Transfer up to SPI_FIFO_LEN bytes */
-	static void IRAM_ATTR isr(Controller* spi);
-	/** @brief Start transfer of a new packet (trans.packet)
-	 *  @note May be called from interrupt context at completion of previous transfer
+	/**
+	 * @brief Transfer up to SPI_FIFO_LEN bytes
 	 */
-	void IRAM_ATTR startPacket();
+	static void IRAM_ATTR isr(Controller* spi);
 
-	/** @brief ead incoming data, if there is any, and start next transaction
-	 *  @note May be called from interrupt context at completion of previous transaction
+	/**
+	 * @brief Start transfer of a new request (trans.request)
+	 * @note May be called from interrupt context at completion of previous request
+	 */
+	void IRAM_ATTR startRequest();
+
+	/**
+	 * @brief Read incoming data, if there is any, and start next transaction
+	 * @note May be called from interrupt context at completion of previous transaction
 	 */
 	void IRAM_ATTR transfer();
 
@@ -283,10 +276,10 @@ private:
 
 	// State of the current transaction in progress
 	struct Transaction {
-		Packet* packet;		 ///< The packet being executed
-		uint16_t addrOffset; ///< Address for next transfer, added to packet start address
+		Request* request;	///< The current request being executed
+		uint16_t addrOffset; ///< Address for next transfer, added to request start address
 		uint16_t outOffset;  ///< Where to read data for next outgoing transfer
-		uint16_t inOffset;   ///< Where to write data from current transfer when it arrives
+		uint16_t inOffset;   ///< Where to write incoming data from current transfer
 		uint8_t inlen;		 ///< Incoming data for current transfer
 		// Flags
 		uint8_t bitOrder : 1;

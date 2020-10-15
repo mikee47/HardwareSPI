@@ -314,7 +314,7 @@ uint32_t Controller::frequencyToClkReg(uint32_t freq)
  *  transfers which require splitting out over multiple packets.
  *
  */
-void Controller::execute(Packet& packet)
+void Controller::execute(Request& packet)
 {
 	packet.next = nullptr;
 	packet.busy = 1;
@@ -322,15 +322,15 @@ void Controller::execute(Packet& packet)
 	ETS_SPI_INTR_DISABLE();
 	if(trans.busy) {
 		// Tack new packet onto end of chain
-		auto pkt = trans.packet;
+		auto pkt = trans.request;
 		while(pkt->next) {
 			pkt = pkt->next;
 		}
 		pkt->next = &packet;
 	} else {
 		// Not currently running, so do this one now
-		trans.packet = &packet;
-		startPacket();
+		trans.request = &packet;
+		startRequest();
 	}
 	ETS_SPI_INTR_ENABLE();
 
@@ -343,12 +343,12 @@ void Controller::execute(Packet& packet)
 	}
 }
 
-void IRAM_ATTR Controller::startPacket()
+void IRAM_ATTR Controller::startRequest()
 {
 	TESTPIN_TOGGLE();
 
-	if(trans.packet->device != activeDevice) {
-		activeDevice = trans.packet->device;
+	if(trans.request->device != activeDevice) {
+		activeDevice = trans.request->device;
 
 		configurePins(activeDevice->pinSet);
 
@@ -498,11 +498,11 @@ void IRAM_ATTR Controller::transfer()
 	TESTPIN_LOW();
 	TESTPIN_HIGH();
 
-	if(trans.packet == nullptr) {
+	if(trans.request == nullptr) {
 		return;
 	}
 
-	Packet& packet = *trans.packet;
+	Request& packet = *trans.request;
 
 	// Read incoming data
 	if(trans.inlen != 0) {
@@ -523,12 +523,12 @@ void IRAM_ATTR Controller::transfer()
 		trans.busy = false;
 		packet.busy = false;
 		// Note next packet in chain before invoking callback
-		trans.packet = packet.next;
+		trans.request = packet.next;
 		packet.next = nullptr;
 		activeDevice->transferComplete(packet);
 		// Start the next packet, if there is one
-		if(trans.packet != nullptr) {
-			startPacket();
+		if(trans.request != nullptr) {
+			startRequest();
 		} else {
 			// All transfers have completed, set SPI0 clock back to full speed
 			if(flags.spi0ClockChanged) {

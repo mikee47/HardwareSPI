@@ -98,19 +98,19 @@ public:
 		return ioMode;
 	}
 
-	void execute(Packet& packet)
+	void execute(Request& request)
 	{
-		packet.device = this;
-		controller.execute(packet);
+		request.device = this;
+		controller.execute(request);
 	}
 
 protected:
 	friend Controller;
 
-	virtual void transferComplete(Packet& packet)
+	virtual void transferComplete(Request& request)
 	{
-		if(packet.callback) {
-			packet.callback(packet);
+		if(request.callback) {
+			request.callback(request);
 		}
 	}
 

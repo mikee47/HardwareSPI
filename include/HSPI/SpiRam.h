@@ -26,11 +26,11 @@ public:
 
 		// Ensure device is in SPI mode
 		Device::setIoMode(IoMode::SQI);
-		Packet packet;
-		packet.out.set8(0xFF);
-		execute(packet);
+		Request req;
+		req.out.set8(0xFF);
+		execute(req);
 		Device::setIoMode(IoMode::SDI);
-		execute(packet);
+		execute(req);
 		Device::setIoMode(IoMode::SPIHD);
 
 		debug_i("RDMR = 0x%08x", readMode());
@@ -53,15 +53,15 @@ public:
 			return oldMode;
 		}
 
-		Packet packet;
+		Request req;
 		if(oldMode != IoMode::SPIHD) {
-			packet.out.set8(0xFF); // Exit SDI/SQI mode
-			execute(packet);
+			req.out.set8(0xFF); // Exit SDI/SQI mode
+			execute(req);
 		}
 
 		if(mode != IoMode::SPIHD) {
-			packet.out.set8((mode == IoMode::SDI) ? 0x3B : 0x38);
-			execute(packet);
+			req.out.set8((mode == IoMode::SDI) ? 0x3B : 0x38);
+			execute(req);
 		}
 
 		Device::setIoMode(mode);
@@ -78,10 +78,10 @@ public:
 		}
 
 		debug_i("WRMR(%u)", unsigned(mode));
-		Packet packet;
-		packet.setCommand8(0x01); // WRMR
-		packet.out.set8(uint8_t(mode));
-		execute(packet);
+		Request req;
+		req.setCommand8(0x01); // WRMR
+		req.out.set8(uint8_t(mode));
+		execute(req);
 		this->mode = mode;
 
 		setIoMode(savedIoMode);
@@ -96,11 +96,11 @@ public:
 			return mode;
 		}
 
-		Packet packet;
-		packet.setCommand8(0x05); // RDMR
-		packet.in.set8(0);
-		execute(packet);
-		mode = Mode(packet.in.data8);
+		Request req;
+		req.setCommand8(0x05); // RDMR
+		req.in.set8(0);
+		execute(req);
+		mode = Mode(req.in.data8);
 
 		setIoMode(savedIoMode);
 		return mode;
@@ -108,12 +108,12 @@ public:
 
 	void write(uint32_t address, const void* data, size_t len)
 	{
-		Packet packet;
+		Request req;
 		if(getIoMode() == IoMode::SPIHD) {
-			packet.setCommand8(0x02); // Write
-			packet.setAddress24(address);
-			packet.out.set(data, len);
-			execute(packet);
+			req.setCommand8(0x02); // Write
+			req.setAddress24(address);
+			req.out.set(data, len);
+			execute(req);
 		} else {
 			auto buf = new uint8_t[4 + len];
 			buf[0] = 0x02;
@@ -121,30 +121,30 @@ public:
 			buf[2] = address >> 8;
 			buf[3] = address;
 			memcpy(&buf[4], data, len);
-			packet.out.set(buf, 4 + len);
-			execute(packet);
+			req.out.set(buf, 4 + len);
+			execute(req);
 			delete buf;
 		}
 	}
 
 	void read(uint32_t address, void* buffer, size_t len)
 	{
-		Packet packet;
+		Request req;
 		if(getIoMode() == IoMode::SPIHD) {
-			packet.setCommand8(0x03); // Read
-			packet.setAddress24(address);
-			packet.dummyLen = 8;
+			req.setCommand8(0x03); // Read
+			req.setAddress24(address);
+			req.dummyLen = 8;
 		} else {
-			packet.out.set32(0);
-			auto& buf = packet.out.data;
+			req.out.set32(0);
+			auto& buf = req.out.data;
 			buf[0] = 0x03;
 			buf[1] = address >> 16;
 			buf[2] = address >> 8;
 			buf[3] = address;
-			packet.dummyLen = (getIoMode() == IoMode::DIO) ? 4 : 2;
+			req.dummyLen = (getIoMode() == IoMode::DIO) ? 4 : 2;
 		}
-		packet.in.set(buffer, len);
-		execute(packet);
+		req.in.set(buffer, len);
+		execute(req);
 	}
 
 private:
