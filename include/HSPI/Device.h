@@ -118,7 +118,7 @@ private:
 	Controller& controller;
 	PinSet pinSet;
 	uint8_t chipSelect;
-	uint32_t clockReg{0}; ///< Computed value for a given bus speed
+	uint32_t clockReg; ///< Computed value for a given bus speed
 	BitOrder bitOrder{MSBFIRST};
 	ClockMode clockMode{0};
 	DataMode dataMode{DataMode::Standard};

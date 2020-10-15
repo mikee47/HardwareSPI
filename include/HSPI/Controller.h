@@ -251,6 +251,8 @@ protected:
 	Packet* getPacket(bool wait = true);
 
 private:
+	void configurePins(PinSet pinSet);
+
 	/** @brief Transfer up to SPI_FIFO_LEN bytes */
 	static void IRAM_ATTR isr(Controller* spi);
 	/** @brief Start transfer of a new packet (trans.packet)
@@ -264,8 +266,7 @@ private:
 	void IRAM_ATTR transfer();
 
 	Device* activeDevice{nullptr};
-	PinSet pinSet{PinSet::None};
-	uint8_t chipSelect{255};
+	PinSet activePinSet{PinSet::None};
 	struct Flags {
 		bool spi0ClockChanged : 1;		   ///< SPI0 clock MUX setting was changed for a transaction
 		bool hspiPinsConfigured : 1;	   ///< Standard HSPI pins were configured at some point
