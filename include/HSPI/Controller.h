@@ -285,7 +285,7 @@ private:
 		uint16_t inOffset;   ///< Where to write data from current transfer when it arrives
 		uint8_t inlen;		 ///< Incoming data for current transfer
 		// Flags
-		BitOrder bitOrder : 1;
+		uint8_t bitOrder : 1;
 		volatile uint8_t busy : 1;
 	};
 	Transaction trans{};

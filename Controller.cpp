@@ -103,9 +103,7 @@ void IRAM_ATTR Controller::isr(Controller* spi)
 {
 	if(READ_PERI_REG(DPORT_SPI_INT_STATUS_REG) & DPORT_SPI_INT_STATUS_SPI1) {
 		SPI1.slave.trans_done = 0;
-		if(spi->trans.packet != nullptr) {
-			spi->transfer();
-		}
+		spi->transfer();
 	}
 
 	//   	if (READ_PERI_REG(DPORT_SPI_INT_STATUS_REG) & DPORT_SPI_INT_STATUS_SPI0) {
@@ -361,9 +359,10 @@ void IRAM_ATTR Controller::startPacket()
 			spi_dev_t::pin_t pin;
 		} reg;
 		reg.user.val = 0;
-		reg.user.cs_setup = 1;
-		reg.user.cs_hold = 1;
+		reg.user.cs_setup = true;
+		reg.user.cs_hold = true;
 		reg.ctrl.val = 0;
+		reg.ctrl.wp_reg = true;
 		reg.pin.val = 0;
 
 		// Enable Hardware CS
@@ -373,33 +372,33 @@ void IRAM_ATTR Controller::startPacket()
 				PIN_FUNC_SELECT(PERIPHS_GPIO_MUX_REG(PIN_HSPI_CS0), FUNC_HSPI_CS0);
 				flags.cs0Configured = true;
 			}
-			reg.pin.cs1_dis = 1;
-			reg.pin.cs2_dis = 1;
-			reg.pin.cs0_dis = 0;
+			reg.pin.cs1_dis = true;
+			reg.pin.cs2_dis = true;
+			reg.pin.cs0_dis = false;
 			break;
 		case 1:
 			if(!flags.cs1Configured) {
 				PIN_FUNC_SELECT(PERIPHS_GPIO_MUX_REG(PIN_SPI_CS1), FUNC_SPICS1);
 				flags.cs1Configured = true;
 			}
-			reg.pin.cs0_dis = 1;
-			reg.pin.cs2_dis = 1;
-			reg.pin.cs1_dis = 0;
+			reg.pin.cs0_dis = true;
+			reg.pin.cs2_dis = true;
+			reg.pin.cs1_dis = false;
 			break;
 		case 2:
 			if(!flags.cs2Configured) {
 				PIN_FUNC_SELECT(PERIPHS_GPIO_MUX_REG(PIN_SPI_CS2), FUNC_SPICS2);
 				flags.cs2Configured = true;
 			}
-			reg.pin.cs0_dis = 1;
-			reg.pin.cs1_dis = 1;
-			reg.pin.cs2_dis = 0;
+			reg.pin.cs0_dis = true;
+			reg.pin.cs1_dis = true;
+			reg.pin.cs2_dis = false;
 			break;
 		default:
 			// TODO: Call method for manual CS control, NON-OVERLAPPED mode ONLY!
-			reg.pin.cs0_dis = 1;
-			reg.pin.cs1_dis = 1;
-			reg.pin.cs2_dis = 1;
+			reg.pin.cs0_dis = true;
+			reg.pin.cs1_dis = true;
+			reg.pin.cs2_dis = true;
 		}
 
 		// Bit order
@@ -415,16 +414,33 @@ void IRAM_ATTR Controller::startPacket()
 		// Data mode
 		auto dataMode = activeDevice->getDataMode();
 		reg.user.duplex = (dataMode == DataMode::Standard);
+		switch(dataMode) {
+		case DataMode::Standard:
+		case DataMode::HalfDuplex:
+			break;
+		case DataMode::Dual:
+			reg.ctrl.fastrd_mode = true;
+			reg.ctrl.fread_dio = true;
+			reg.user.fwrite_dio = true;
+			break;
+		case DataMode::Quad:
+			reg.ctrl.fastrd_mode = true;
+			reg.ctrl.fread_qio = true;
+			reg.user.fwrite_qio = true;
+			break;
+		default:
+			assert(false);
+		}
 
 		// Clock phase/polarity
 		auto clockMode = uint8_t(activeDevice->getClockMode());
 		reg.user.ck_out_edge = (clockMode & 0x01) ? 1 : 0; // CPHA
 		reg.pin.ck_idle_edge = (clockMode & 0x10) ? 1 : 0; // CPOL
 
-		SPI1.user.val = reg.user.val;
 		SPI1.ctrl.val = reg.ctrl.val;
 		SPI1.ctrl1.val = 0;
 		SPI1.pin.val = reg.pin.val;
+		SPI1.user.val = reg.user.val;
 
 		// Clock
 		auto clockReg = activeDevice->getClockReg();
@@ -458,7 +474,6 @@ void IRAM_ATTR Controller::startPacket()
 	trans.outOffset = 0;
 	trans.inOffset = 0;
 	trans.inlen = 0;
-	trans.busy = 1;
 
 	transfer();
 }
@@ -471,10 +486,14 @@ void IRAM_ATTR Controller::transfer()
 	TESTPIN_LOW();
 	TESTPIN_HIGH();
 
+	if(trans.packet == nullptr) {
+		return;
+	}
+
 	Packet& packet = *trans.packet;
 
 	// Read incoming data
-	if(trans.inlen) {
+	if(trans.inlen != 0) {
 		if(packet.in.isPointer) {
 			memcpy(packet.in.ptr8 + trans.inOffset, (const void*)SPI1.data_buf, ALIGNUP4(trans.inlen));
 		} else {
@@ -487,10 +506,10 @@ void IRAM_ATTR Controller::transfer()
 	// Packet complete?
 	unsigned inlen = packet.in.length - trans.inOffset;
 	unsigned outlen = packet.out.length - trans.outOffset;
-	if(inlen == 0 && outlen == 0) {
+	if(trans.busy && inlen == 0 && outlen == 0) {
 		TESTPIN_LOW();
-		trans.busy = 0;
-		packet.busy = 0;
+		trans.busy = false;
+		packet.busy = false;
 		// Note next packet in chain before invoking callback
 		trans.packet = packet.next;
 		packet.next = nullptr;
@@ -510,6 +529,7 @@ void IRAM_ATTR Controller::transfer()
 	}
 
 	// Set up next transfer
+	trans.busy = true;
 
 	// Build register values in a temp is faster than modifying registers directly
 	struct {
