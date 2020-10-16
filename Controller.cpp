@@ -527,12 +527,13 @@ void IRAM_ATTR Controller::startRequest()
 
 	auto& req = *trans.request;
 	auto& dev = *req.device;
-	auto& reg = dev.config.reg;
+	auto& cfg = dev.config;
 
 	trans.addr = req.addr;
 	trans.outOffset = 0;
 	trans.inOffset = 0;
 	trans.inlen = 0;
+	trans.ioMode = dev.getIoMode();
 	trans.bitOrder = dev.getBitOrder();
 	trans.busy = true;
 
@@ -558,7 +559,7 @@ void IRAM_ATTR Controller::startRequest()
 
 	// Clock
 	auto ioMux = READ_PERI_REG(PERIPHS_IO_MUX_CONF_U);
-	spi_dev_t::clock_t clk{.val{reg.clock}};
+	spi_dev_t::clock_t clk{.val{cfg.reg.clock}};
 	if(clk.clk_equ_sysclk) {
 		ioMux |= SPI1_CLK_EQU_SYS_CLK;
 	} else {
@@ -574,36 +575,42 @@ void IRAM_ATTR Controller::startRequest()
 		}
 	}
 	WRITE_PERI_REG(PERIPHS_IO_MUX_CONF_U, ioMux);
-	SPI1.clock.val = reg.clock;
+	SPI1.clock.val = cfg.reg.clock;
 
-	SPI1.ctrl.val = reg.ctrl;
-	SPI1.pin.val = reg.pin;
+	SPI1.ctrl.val = cfg.reg.ctrl;
+	SPI1.pin.val = cfg.reg.pin;
 
-	spi_dev_t::user_t user{.val{reg.user}};
-	spi_dev_t::user1_t user1{.val{reg.user1}};
+	spi_dev_t::user_t user{.val{cfg.reg.user}};
+	spi_dev_t::user1_t user1{.val{cfg.reg.user1}};
 
-	// Setup command bits
-	if(req.cmdLen != 0) {
-		uint16_t cmd{req.cmd};
-		if(trans.bitOrder == MSBFIRST) {
-			// Command sent bit 7->0 then 15->8 so adjust ordering
-			cmd = bswap16(cmd << (16 - req.cmdLen));
-		}
-		spi_dev_t::user2_t user2{};
-		user2.usr_command_value = cmd;
-		user2.usr_command_bitlen = req.cmdLen - 1;
-		SPI1.user2.val = user2.val;
-		user.usr_command = true;
-	} else {
+	if(trans.ioMode == IoMode::SDI || trans.ioMode == IoMode::SQI) {
 		user.usr_command = false;
-	}
-
-	// Setup address bits
-	if(req.addrLen != 0) {
-		user1.usr_addr_bitlen = req.addrLen - 1;
-		user.usr_addr = true;
-	} else {
 		user.usr_addr = false;
+		user.usr_mosi = true;
+	} else {
+		// Setup command bits
+		if(req.cmdLen != 0) {
+			uint16_t cmd{req.cmd};
+			if(trans.bitOrder == MSBFIRST) {
+				// Command sent bit 7->0 then 15->8 so adjust ordering
+				cmd = bswap16(cmd << (16 - req.cmdLen));
+			}
+			spi_dev_t::user2_t user2{};
+			user2.usr_command_value = cmd;
+			user2.usr_command_bitlen = req.cmdLen - 1;
+			SPI1.user2.val = user2.val;
+			user.usr_command = true;
+		} else {
+			user.usr_command = false;
+		}
+
+		// Setup address bits
+		if(req.addrLen != 0) {
+			user1.usr_addr_bitlen = req.addrLen - 1;
+			user.usr_addr = true;
+		} else {
+			user.usr_addr = false;
+		}
 	}
 
 	// Setup dummy bits
@@ -614,10 +621,14 @@ void IRAM_ATTR Controller::startRequest()
 		user.usr_dummy = false;
 	}
 
-	reg.user = user.val;
-	reg.user1 = user1.val;
+	cfg.reg.user = user.val;
+	cfg.reg.user1 = user1.val;
 
-	nextTransaction();
+	if(trans.ioMode == IoMode::SDI || trans.ioMode == IoMode::SQI) {
+		nextTransactionSDQI();
+	} else {
+		nextTransaction();
+	}
 }
 
 void IRAM_ATTR Controller::nextTransaction()
@@ -696,6 +707,84 @@ void IRAM_ATTR Controller::nextTransaction()
 	++stats.transCount;
 }
 
+/*
+ * Hardware only supports 1-bit command phase so emulation required for SDI and SQI modes
+ */
+void IRAM_ATTR Controller::nextTransactionSDQI()
+{
+	auto& req = *trans.request;
+	auto& cfg = req.device->config;
+
+	spi_dev_t::user_t user{.val{cfg.reg.user}};
+	spi_dev_t::user1_t user1{.val{cfg.reg.user1}};
+
+	uint8_t buffer[SPI_BUFSIZE];
+	uint8_t* bufPtr = buffer;
+
+	// Setup command bits
+	if(req.cmdLen == 16) {
+		if(trans.bitOrder == MSBFIRST) {
+			*bufPtr++ = (req.cmd >> 8);
+			*bufPtr++ = req.cmd;
+		} else {
+			*bufPtr++ = req.cmd;
+			*bufPtr++ = (req.cmd >> 8);
+		}
+	} else if(req.cmdLen == 8) {
+		*bufPtr++ = req.cmd;
+	}
+
+	// Setup address
+	if(req.addrLen != 0) {
+		uint32_t addr = trans.addr;
+		if(trans.bitOrder == MSBFIRST) {
+			addr = bswap32(addr) >> (32 - req.addrLen);
+		}
+		memcpy(bufPtr, &addr, sizeof(addr));
+		bufPtr += req.addrLen / 8;
+	}
+
+	// Setup outgoing data (MOSI)
+	size_t outlen = req.out.length - trans.outOffset;
+	if(outlen != 0) {
+		if(req.out.isPointer) {
+			outlen = std::min(outlen, SPI_BUFSIZE - (bufPtr - buffer));
+			memcpy(bufPtr, req.out.ptr8 + trans.outOffset, outlen);
+		} else {
+			memcpy(bufPtr, req.out.data, sizeof(uint32_t));
+		}
+		bufPtr += outlen;
+		trans.outOffset += outlen;
+	}
+
+	auto buflen = bufPtr - buffer;
+	memcpy((void*)SPI1.data_buf, buffer, ALIGNUP4(buflen));
+	user1.usr_mosi_bitlen = (buflen * 8) - 1;
+
+	// Setup incoming data (MISO)
+	size_t inlen = req.in.length - trans.inOffset;
+	if(inlen != 0) {
+		inlen = std::min(inlen, SPI_BUFSIZE);
+		trans.inlen = inlen;
+		user1.usr_miso_bitlen = (inlen * 8) - 1;
+		user.usr_miso = true;
+	} else {
+		user.usr_miso = false;
+	}
+
+	trans.addr += std::max(outlen, inlen);
+
+	SPI1.user1.val = user1.val;
+	SPI1.user.val = user.val;
+
+	// Execute now
+	TESTPIN_LOW();
+	SPI1.cmd.usr = true;
+	TESTPIN_HIGH();
+
+	++stats.transCount;
+}
+
 void IRAM_ATTR Controller::isr(Controller* spi)
 {
 	if(READ_PERI_REG(DPORT_SPI_INT_STATUS_REG) & DPORT_SPI_INT_STATUS_SPI1) {
@@ -723,13 +812,12 @@ void IRAM_ATTR Controller::transactionDone()
 			req.in.data32 = SPI1.data_buf[0];
 		}
 		trans.inOffset += trans.inlen;
+		trans.inlen = 0;
 		TESTPIN_HIGH();
 	}
 
 	// Packet complete?
-	unsigned inlen = req.in.length - trans.inOffset;
-	unsigned outlen = req.out.length - trans.outOffset;
-	if(inlen == 0 && outlen == 0) {
+	if(trans.inOffset >= req.in.length && trans.outOffset >= req.out.length) {
 		TESTPIN_LOW();
 		trans.busy = false;
 		req.busy = false;
@@ -745,11 +833,11 @@ void IRAM_ATTR Controller::transactionDone()
 			SET_PERI_REG_MASK(PERIPHS_IO_MUX_CONF_U, SPI0_CLK_EQU_SYS_CLK);
 			flags.spi0ClockChanged = false;
 		}
-		return;
+	} else if(trans.ioMode == IoMode::SDI || trans.ioMode == IoMode::SQI) {
+		nextTransactionSDQI();
+	} else {
+		nextTransaction();
 	}
-
-	// Set up next transfer
-	nextTransaction();
 }
 
 } // namespace HSPI

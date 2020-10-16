@@ -39,7 +39,8 @@ public:
 
 		debug_i("RDMR = 0x%08x", readMode());
 
-		//		setIoMode(IoMode::SQI);
+		writeMode(Mode::Sequential);
+		setIoMode(IoMode::SQI);
 
 		return true;
 	}
@@ -95,12 +96,8 @@ public:
 
 	Mode readMode()
 	{
+		// requires SPIHD
 		auto savedIoMode = setIoMode(IoMode::SPIHD);
-
-		if(getIoMode() != IoMode::SPIHD) {
-			debug_e("readMode() requires SPIHD IO");
-			return mode;
-		}
 
 		Request req;
 		req.setCommand8(0x05); // RDMR
@@ -115,40 +112,18 @@ public:
 	void write(uint32_t address, const void* data, size_t len)
 	{
 		Request req;
-		if(getIoMode() == IoMode::SPIHD) {
-			req.setCommand8(0x02); // Write
-			req.setAddress24(address);
-			req.out.set(data, len);
-			execute(req);
-		} else {
-			auto buf = new uint8_t[4 + len];
-			buf[0] = 0x02;
-			buf[1] = address >> 16;
-			buf[2] = address >> 8;
-			buf[3] = address;
-			memcpy(&buf[4], data, len);
-			req.out.set(buf, 4 + len);
-			execute(req);
-			delete buf;
-		}
+		req.setCommand8(0x02); // Write
+		req.setAddress24(address);
+		req.out.set(data, len);
+		execute(req);
 	}
 
 	void read(uint32_t address, void* buffer, size_t len)
 	{
 		Request req;
-		if(getIoMode() == IoMode::SPIHD) {
-			req.setCommand8(0x03); // Read
-			req.setAddress24(address);
-			req.dummyLen = 8;
-		} else {
-			req.out.set32(0);
-			auto& buf = req.out.data;
-			buf[0] = 0x03;
-			buf[1] = address >> 16;
-			buf[2] = address >> 8;
-			buf[3] = address;
-			req.dummyLen = (getIoMode() == IoMode::DIO) ? 4 : 2;
-		}
+		req.setCommand8(0x03); // Read
+		req.setAddress24(address);
+		req.dummyLen = 8 / getBitsPerClock();
 		req.in.set(buffer, len);
 		execute(req);
 	}

@@ -112,6 +112,25 @@ public:
 		return ioMode;
 	}
 
+	size_t getBitsPerClock() const
+	{
+		switch(ioMode) {
+		case IoMode::SPI:
+		case IoMode::SPIHD:
+			return 1;
+		case IoMode::DUAL:
+		case IoMode::DIO:
+		case IoMode::SDI:
+			return 2;
+		case IoMode::QUAD:
+		case IoMode::QIO:
+		case IoMode::SQI:
+			return 4;
+		default:
+			return 1;
+		}
+	}
+
 	void execute(Request& request)
 	{
 		request.device = this;

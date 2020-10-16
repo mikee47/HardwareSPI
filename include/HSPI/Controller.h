@@ -258,6 +258,7 @@ private:
 	void startRequest();
 
 	void nextTransaction();
+	void nextTransactionSDQI();
 
 	/**
 	 * @brief Interrupt on transaction complete
@@ -286,6 +287,7 @@ private:
 		uint16_t outOffset; ///< Where to read data for next outgoing transfer
 		uint16_t inOffset;  ///< Where to write incoming data from current transfer
 		uint8_t inlen;		///< Incoming data for current transfer
+		IoMode ioMode;
 		// Flags
 		uint8_t bitOrder : 1;
 		volatile uint8_t busy : 1;

@@ -142,3 +142,8 @@ Somne devices (e.g. W25Q32 flash) have specific commands to support these modes,
 and the SDI/SQI mode setting applies to all phases. This needs to be implemented in the driver as otherwise the user code is more complex than
 necesssary and performance suffers considerably.
 
+TODO
+----
+
+-  Implement 64-bit addressing. Hardware supports this using ``wr_status`` register for high word.
+-  Implement slave modes
