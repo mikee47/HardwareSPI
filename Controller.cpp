@@ -493,7 +493,8 @@ void IRAM_ATTR Controller::startRequest()
 {
 	TESTPIN_TOGGLE();
 
-	auto& dev = *trans.request->device;
+	auto& req = *trans.request;
+	auto& dev = *req.device;
 
 	auto pinSet = dev.pinSet;
 	if(pinSet != activePinSet) {
@@ -572,21 +573,26 @@ void IRAM_ATTR Controller::transfer()
 
 	Request& req = *trans.request;
 
-	// Read incoming data
-	if(trans.inlen != 0) {
-		if(req.in.isPointer) {
-			memcpy(req.in.ptr8 + trans.inOffset, (const void*)SPI1.data_buf, ALIGNUP4(trans.inlen));
-		} else {
-			req.in.data32 = SPI1.data_buf[0];
+	bool started = trans.busy;
+	trans.busy = true;
+
+	if(started) {
+		// Read incoming data
+		if(trans.inlen != 0) {
+			if(req.in.isPointer) {
+				memcpy(req.in.ptr8 + trans.inOffset, (const void*)SPI1.data_buf, ALIGNUP4(trans.inlen));
+			} else {
+				req.in.data32 = SPI1.data_buf[0];
+			}
+			trans.inOffset += trans.inlen;
+			TESTPIN_HIGH();
 		}
-		trans.inOffset += trans.inlen;
-		TESTPIN_HIGH();
 	}
 
 	// Packet complete?
 	unsigned inlen = req.in.length - trans.inOffset;
 	unsigned outlen = req.out.length - trans.outOffset;
-	if(trans.busy && inlen == 0 && outlen == 0) {
+	if(started && inlen == 0 && outlen == 0) {
 		TESTPIN_LOW();
 		trans.busy = false;
 		req.busy = false;
@@ -608,7 +614,6 @@ void IRAM_ATTR Controller::transfer()
 	}
 
 	// Set up next transfer
-	trans.busy = true;
 
 	// Build register values in a temp is faster than modifying registers directly
 	struct {
@@ -616,45 +621,53 @@ void IRAM_ATTR Controller::transfer()
 		spi_dev_t::user1_t user1;
 	} reg;
 	reg.user.val = SPI1.user.val;
-	reg.user1.val = 0;
+	reg.user1.val = SPI1.user1.val;
 
-	// Setup command bits
-	if(req.cmdLen != 0) {
-		uint16_t cmd = req.cmd;
-		if(trans.bitOrder == MSBFIRST) {
-			// Command sent bit 7->0 then 15->8 so adjust ordering
-			cmd = bswap16(cmd << (16 - req.cmdLen));
+	uint32_t addr = req.addr + trans.addrOffset;
+
+	// Most setup done in first transaction
+	if(!started) {
+		// Setup command bits
+		if(req.cmdLen != 0) {
+			uint16_t cmd = req.cmd;
+			if(trans.bitOrder == MSBFIRST) {
+				// Command sent bit 7->0 then 15->8 so adjust ordering
+				cmd = bswap16(cmd << (16 - req.cmdLen));
+			}
+			spi_dev_t::user2_t tmp{};
+			tmp.usr_command_value = cmd;
+			tmp.usr_command_bitlen = req.cmdLen - 1;
+			SPI1.user2.val = tmp.val;
+			reg.user.usr_command = 1;
+		} else {
+			reg.user.usr_command = 0;
 		}
-		spi_dev_t::user2_t tmp{};
-		tmp.usr_command_value = cmd;
-		tmp.usr_command_bitlen = req.cmdLen - 1;
-		SPI1.user2.val = tmp.val;
-		reg.user.usr_command = 1;
-	} else {
-		reg.user.usr_command = 0;
+
+		// Setup address bits
+		if(req.addrLen != 0) {
+			reg.user1.usr_addr_bitlen = req.addrLen - 1;
+			reg.user.usr_addr = 1;
+		} else {
+			reg.user.usr_addr = 0;
+		}
+
+		// Setup dummy bits
+		if(req.dummyLen != 0) {
+			reg.user1.usr_dummy_cyclelen = req.dummyLen - 1;
+			reg.user.usr_dummy = 1;
+		} else {
+			reg.user.usr_dummy = 0;
+		}
 	}
 
-	// Setup address bits
+	// Setup next address
 	if(req.addrLen != 0) {
-		uint32_t addr = req.addr + trans.addrOffset;
 		if(trans.bitOrder == MSBFIRST) {
 			// Address sent MSB to LSB of register value, so shift up as required
 			addr <<= 32 - req.addrLen;
 		}
 
-		reg.user1.usr_addr_bitlen = req.addrLen - 1;
 		SPI1.addr = addr;
-		reg.user.usr_addr = 1;
-	} else {
-		reg.user.usr_addr = 0;
-	}
-
-	// Setup dummy bits
-	if(req.dummyLen != 0) {
-		reg.user1.usr_dummy_cyclelen = req.dummyLen - 1;
-		reg.user.usr_dummy = 1;
-	} else {
-		reg.user.usr_dummy = 0;
 	}
 
 	// Setup outgoing data (MOSI)
