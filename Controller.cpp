@@ -475,12 +475,15 @@ void Controller::execute(Request& req)
 		trans.request = &req;
 		startRequest();
 	}
-	ETS_SPI_INTR_ENABLE();
 
-	if(!req.async) {
+	// Use interrupts for asynchronous mode
+	if(req.async) {
+		ETS_SPI_INTR_ENABLE();
+	} else {
+		// Otherwise block and poll
 		CpuCycleTimer timer;
 		while(req.busy) {
-			//
+			isr(this);
 		}
 		stats.waitCycles += timer.elapsedTicks();
 	}
@@ -490,67 +493,62 @@ void IRAM_ATTR Controller::startRequest()
 {
 	TESTPIN_TOGGLE();
 
-	if(trans.request->device != activeDevice) {
-		activeDevice = trans.request->device;
+	auto& dev = *trans.request->device;
 
-		auto pinSet = activeDevice->pinSet;
-		if(pinSet != activePinSet) {
-			debug_w("Configuring PinSet %u", unsigned(pinSet));
-
-			if(activePinSet == PinSet::Overlap) {
-				// Disable HSPI overlap
-				CLEAR_PERI_REG_MASK(HOST_INF_SEL, PERI_IO_CSPI_OVERLAP);
-				// De-prioritise SPI vs HSPI
-				SPI0.ext3.int_hold_ena = 0;
-				SPI1.ext3.int_hold_ena = 0;
-			}
-
-			if(pinSet == PinSet::Overlap) {
-				SET_PERI_REG_MASK(HOST_INF_SEL, PERI_IO_CSPI_OVERLAP);
-				// Prioritise SPI over HSPI transactions
-				SPI0.ext3.int_hold_ena = 1;
-				SPI1.ext3.int_hold_ena = 3;
-			}
-
-			activePinSet = pinSet;
+	auto pinSet = dev.pinSet;
+	if(pinSet != activePinSet) {
+		if(activePinSet == PinSet::Overlap) {
+			// Disable HSPI overlap
+			CLEAR_PERI_REG_MASK(HOST_INF_SEL, PERI_IO_CSPI_OVERLAP);
+			// De-prioritise SPI vs HSPI
+			SPI0.ext3.int_hold_ena = 0;
+			SPI1.ext3.int_hold_ena = 0;
 		}
 
-		// Bit order
-		trans.bitOrder = activeDevice->getBitOrder();
-
-		auto& cfg = activeDevice->config;
-		SPI1.ctrl.val = cfg.reg.ctrl;
-		SPI1.ctrl1.val = 0;
-		SPI1.pin.val = cfg.reg.pin;
-		SPI1.user.val = cfg.reg.user;
-
-		// Clock
-		auto clockReg = activeDevice->getClockReg();
-		auto ioMux = READ_PERI_REG(PERIPHS_IO_MUX_CONF_U);
-		if(clockReg == SPI_CLK_EQU_SYSCLK) {
-			ioMux |= SPI1_CLK_EQU_SYS_CLK;
-		} else {
-			ioMux &= ~SPI1_CLK_EQU_SYS_CLK;
-
-			// In overlap mode, SPI0 sysclock selection overrides SPI1
-			if(!flags.spi0ClockChanged && activePinSet == PinSet::Overlap) {
-				if(ioMux & SPI0_CLK_EQU_SYS_CLK) {
-					spi_dev_t::clock_t div2{{
-						.clkcnt_l = 1,
-						.clkcnt_h = 0,
-						.clkcnt_n = 1,
-						.clkdiv_pre = 0,
-						.clk_equ_sysclk = 0,
-					}};
-					SPI0.clock.val = div2.val;
-					ioMux &= ~SPI0_CLK_EQU_SYS_CLK;
-					flags.spi0ClockChanged = true;
-				}
-			}
+		if(pinSet == PinSet::Overlap) {
+			SET_PERI_REG_MASK(HOST_INF_SEL, PERI_IO_CSPI_OVERLAP);
+			// Prioritise SPI over HSPI transactions
+			SPI0.ext3.int_hold_ena = 1;
+			SPI1.ext3.int_hold_ena = 3;
 		}
-		WRITE_PERI_REG(PERIPHS_IO_MUX_CONF_U, ioMux);
-		SPI1.clock.val = clockReg;
+
+		activePinSet = pinSet;
 	}
+
+	trans.bitOrder = dev.getBitOrder();
+
+	auto& reg = dev.config.reg;
+	SPI1.ctrl.val = reg.ctrl;
+	SPI1.ctrl1.val = 0;
+	SPI1.pin.val = reg.pin;
+	SPI1.user.val = reg.user;
+
+	// Clock
+	auto clockReg = dev.getClockReg();
+	auto ioMux = READ_PERI_REG(PERIPHS_IO_MUX_CONF_U);
+	if(clockReg == SPI_CLK_EQU_SYSCLK) {
+		ioMux |= SPI1_CLK_EQU_SYS_CLK;
+	} else {
+		ioMux &= ~SPI1_CLK_EQU_SYS_CLK;
+
+		// In overlap mode, SPI0 sysclock selection overrides SPI1
+		if(!flags.spi0ClockChanged && activePinSet == PinSet::Overlap) {
+			if(ioMux & SPI0_CLK_EQU_SYS_CLK) {
+				spi_dev_t::clock_t div2{{
+					.clkcnt_l = 1,
+					.clkcnt_h = 0,
+					.clkcnt_n = 1,
+					.clkdiv_pre = 0,
+					.clk_equ_sysclk = 0,
+				}};
+				SPI0.clock.val = div2.val;
+				ioMux &= ~SPI0_CLK_EQU_SYS_CLK;
+				flags.spi0ClockChanged = true;
+			}
+		}
+	}
+	WRITE_PERI_REG(PERIPHS_IO_MUX_CONF_U, ioMux);
+	SPI1.clock.val = clockReg;
 
 	trans.addrOffset = 0;
 	trans.outOffset = 0;
@@ -572,30 +570,30 @@ void IRAM_ATTR Controller::transfer()
 		return;
 	}
 
-	Request& packet = *trans.request;
+	Request& req = *trans.request;
 
 	// Read incoming data
 	if(trans.inlen != 0) {
-		if(packet.in.isPointer) {
-			memcpy(packet.in.ptr8 + trans.inOffset, (const void*)SPI1.data_buf, ALIGNUP4(trans.inlen));
+		if(req.in.isPointer) {
+			memcpy(req.in.ptr8 + trans.inOffset, (const void*)SPI1.data_buf, ALIGNUP4(trans.inlen));
 		} else {
-			packet.in.data32 = SPI1.data_buf[0];
+			req.in.data32 = SPI1.data_buf[0];
 		}
 		trans.inOffset += trans.inlen;
 		TESTPIN_HIGH();
 	}
 
 	// Packet complete?
-	unsigned inlen = packet.in.length - trans.inOffset;
-	unsigned outlen = packet.out.length - trans.outOffset;
+	unsigned inlen = req.in.length - trans.inOffset;
+	unsigned outlen = req.out.length - trans.outOffset;
 	if(trans.busy && inlen == 0 && outlen == 0) {
 		TESTPIN_LOW();
 		trans.busy = false;
-		packet.busy = false;
+		req.busy = false;
 		// Note next packet in chain before invoking callback
-		trans.request = packet.next;
-		packet.next = nullptr;
-		activeDevice->transferComplete(packet);
+		trans.request = req.next;
+		req.next = nullptr;
+		req.device->transferComplete(req);
 		// Start the next packet, if there is one
 		if(trans.request != nullptr) {
 			startRequest();
@@ -605,7 +603,6 @@ void IRAM_ATTR Controller::transfer()
 				SET_PERI_REG_MASK(PERIPHS_IO_MUX_CONF_U, SPI0_CLK_EQU_SYS_CLK);
 				flags.spi0ClockChanged = false;
 			}
-			activeDevice = nullptr;
 		}
 		return;
 	}
@@ -622,15 +619,15 @@ void IRAM_ATTR Controller::transfer()
 	reg.user1.val = 0;
 
 	// Setup command bits
-	if(packet.cmdLen != 0) {
-		uint16_t cmd = packet.cmd;
+	if(req.cmdLen != 0) {
+		uint16_t cmd = req.cmd;
 		if(trans.bitOrder == MSBFIRST) {
 			// Command sent bit 7->0 then 15->8 so adjust ordering
-			cmd = bswap16(cmd << (16 - packet.cmdLen));
+			cmd = bswap16(cmd << (16 - req.cmdLen));
 		}
 		spi_dev_t::user2_t tmp{};
 		tmp.usr_command_value = cmd;
-		tmp.usr_command_bitlen = packet.cmdLen - 1;
+		tmp.usr_command_bitlen = req.cmdLen - 1;
 		SPI1.user2.val = tmp.val;
 		reg.user.usr_command = 1;
 	} else {
@@ -638,14 +635,14 @@ void IRAM_ATTR Controller::transfer()
 	}
 
 	// Setup address bits
-	if(packet.addrLen != 0) {
-		uint32_t addr = packet.addr + trans.addrOffset;
+	if(req.addrLen != 0) {
+		uint32_t addr = req.addr + trans.addrOffset;
 		if(trans.bitOrder == MSBFIRST) {
 			// Address sent MSB to LSB of register value, so shift up as required
-			addr <<= 32 - packet.addrLen;
+			addr <<= 32 - req.addrLen;
 		}
 
-		reg.user1.usr_addr_bitlen = packet.addrLen - 1;
+		reg.user1.usr_addr_bitlen = req.addrLen - 1;
 		SPI1.addr = addr;
 		reg.user.usr_addr = 1;
 	} else {
@@ -653,8 +650,8 @@ void IRAM_ATTR Controller::transfer()
 	}
 
 	// Setup dummy bits
-	if(packet.dummyLen != 0) {
-		reg.user1.usr_dummy_cyclelen = packet.dummyLen - 1;
+	if(req.dummyLen != 0) {
+		reg.user1.usr_dummy_cyclelen = req.dummyLen - 1;
 		reg.user.usr_dummy = 1;
 	} else {
 		reg.user.usr_dummy = 0;
@@ -662,13 +659,13 @@ void IRAM_ATTR Controller::transfer()
 
 	// Setup outgoing data (MOSI)
 	if(outlen != 0) {
-		if(packet.out.isPointer) {
+		if(req.out.isPointer) {
 			if(outlen > SPI_BUFSIZE) {
 				outlen = SPI_BUFSIZE;
 			}
-			memcpy((void*)SPI1.data_buf, packet.out.ptr8 + trans.outOffset, ALIGNUP4(outlen));
+			memcpy((void*)SPI1.data_buf, req.out.ptr8 + trans.outOffset, ALIGNUP4(outlen));
 		} else {
-			SPI1.data_buf[0] = packet.out.data32;
+			SPI1.data_buf[0] = req.out.data32;
 		}
 		reg.user1.usr_mosi_bitlen = (outlen * 8) - 1;
 		trans.outOffset += outlen;

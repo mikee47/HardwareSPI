@@ -279,11 +279,10 @@ private:
 	 */
 	void IRAM_ATTR transfer();
 
-	Device* activeDevice{nullptr};
 	PinSet activePinSet{PinSet::None};
-	uint8_t overlapDevices{0};
-	uint8_t normalDevices{0};
-	std::bitset<8> chipSelectsInUse;
+	uint8_t overlapDevices{0};		 ///< Number of registered devices using overlap pins (SPI0)
+	uint8_t normalDevices{0};		 ///< Number of registered devices using HSPI pins (SPI1)
+	std::bitset<8> chipSelectsInUse; ///< Ensures each CS is used only once
 	struct Flags {
 		bool spi0ClockChanged : 1; ///< SPI0 clock MUX setting was changed for a transaction
 	};
