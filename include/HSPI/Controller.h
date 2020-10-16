@@ -103,12 +103,12 @@ enum class ClockMode : uint8_t {
 enum class IoMode : uint8_t {
 	SPI,   ///< One bit per clock, MISO stage concurrent with MISO (full-duplex)
 	SPIHD, ///< One bit per clock, MISO stage follows MOSI (half-duplex)
-	SDI,   ///< Two bits per clock for Command, Address and Data
-	DIO,   ///< Two bits per clock for Address and Data, 1-bit for Command
 	DUAL,  ///< Two bits per clock for Data, 1-bit for Command and Address
-	SQI,   ///< Four bits per clock for Command, Address and Data
-	QIO,   ///< Four bits per clock for Address and Data, 1-bit for Command
+	DIO,   ///< Two bits per clock for Address and Data, 1-bit for Command
+	SDI,   ///< Two bits per clock for Command, Address and Data
 	QUAD,  ///< Four bits per clock  for Data, 1-bit for Command and Address
+	QIO,   ///< Four bits per clock for Address and Data, 1-bit for Command
+	SQI,   ///< Four bits per clock for Command, Address and Data
 };
 
 /*
@@ -202,9 +202,11 @@ public:
 		bool dirty{true}; ///< Set when values require updating
 		// Pre-calculated register values - see updateConfig()
 		struct {
-			uint32_t user{0};
+			uint32_t clock{0};
 			uint32_t ctrl{0};
 			uint32_t pin{0};
+			uint32_t user{0};
+			uint32_t user1{0};
 		} reg;
 	};
 
@@ -235,22 +237,9 @@ public:
 
 	void configChanged(Device& dev);
 
-	/** @brief Determine the best clock register value for a desired bus frequency
-	 *  @param frequency Desired SPI clock frequency in Hz
-	 *  @retval uint32_t opaque 32-bit register setting value
-	 *  @note
-	 *  	Speed settings are pre-calculated to optimise switching between devices.
-	 *  	It is guaranteed that the frequency will not exceed the given target
-	 *  	This method must be called with the CPU set to the correct clock frequency
-	 *  	in use; if this changes then the calculation will be wrong.
-	 */
-	virtual uint32_t frequencyToClkReg(uint32_t frequency);
+	void setSpeed(Device& dev, uint32_t frequency);
 
-	/** @brief Calculate SPI clock Frequency based on the register value
-	 * 	@param regVal
-	 * 	@retval uint32_t clock frequency in Hz
-	 */
-	virtual uint32_t clkRegToFreq(uint32_t regVal);
+	uint32_t getSpeed(Device& dev) const;
 
 	static volatile Stats stats;
 
@@ -263,21 +252,23 @@ private:
 	static void updateConfig(Device& dev);
 
 	/**
-	 * @brief Transfer up to SPI_FIFO_LEN bytes
-	 */
-	static void IRAM_ATTR isr(Controller* spi);
-
-	/**
 	 * @brief Start transfer of a new request (trans.request)
 	 * @note May be called from interrupt context at completion of previous request
 	 */
-	void IRAM_ATTR startRequest();
+	void startRequest();
+
+	void nextTransaction();
+
+	/**
+	 * @brief Interrupt on transaction complete
+	 */
+	static void isr(Controller* spi);
 
 	/**
 	 * @brief Read incoming data, if there is any, and start next transaction
-	 * @note May be called from interrupt context at completion of previous transaction
+	 * @note Called from interrupt context at completion of transaction
 	 */
-	void IRAM_ATTR transfer();
+	void transactionDone();
 
 	PinSet activePinSet{PinSet::None};
 	uint8_t overlapDevices{0};		 ///< Number of registered devices using overlap pins (SPI0)
@@ -290,11 +281,11 @@ private:
 
 	// State of the current transaction in progress
 	struct Transaction {
-		Request* request;	///< The current request being executed
-		uint16_t addrOffset; ///< Address for next transfer, added to request start address
-		uint16_t outOffset;  ///< Where to read data for next outgoing transfer
-		uint16_t inOffset;   ///< Where to write incoming data from current transfer
-		uint8_t inlen;		 ///< Incoming data for current transfer
+		Request* request;   ///< The current request being executed
+		uint16_t addr;		///< Address for next transfer
+		uint16_t outOffset; ///< Where to read data for next outgoing transfer
+		uint16_t inOffset;  ///< Where to write incoming data from current transfer
+		uint8_t inlen;		///< Incoming data for current transfer
 		// Flags
 		uint8_t bitOrder : 1;
 		volatile uint8_t busy : 1;

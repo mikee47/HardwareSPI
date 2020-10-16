@@ -73,6 +73,118 @@ volatile Stats Controller::stats;
 // SPI FIFO
 #define SPI_BUFSIZE sizeof(SPI1.data_buf)
 
+namespace
+{
+const spi_dev_t::clock_t clkEquSys{{
+	.clkcnt_l{0},
+	.clkcnt_h{0},
+	.clkcnt_n{0},
+	.clkdiv_pre{0},
+	.clk_equ_sysclk{true},
+}};
+const spi_dev_t::clock_t clkMin{{
+	.clkcnt_l{0x3f},
+	.clkcnt_h{0x1f},
+	.clkcnt_n{0x3f},
+	.clkdiv_pre{0x1fff},
+	.clk_equ_sysclk{false},
+}};
+const spi_dev_t::clock_t clkDiv2{{
+	.clkcnt_l{1},
+	.clkcnt_h{0},
+	.clkcnt_n{1},
+	.clkdiv_pre{0},
+	.clk_equ_sysclk{0},
+}};
+
+/** @brief Calculate SPI clock Frequency based on the register value
+ * 	@param regVal
+ * 	@retval uint32_t clock frequency in Hz
+ */
+uint32_t getClockFrequency(const spi_dev_t::clock_t clk)
+{
+	return APB_CLK_FREQ / ((clk.clkdiv_pre + 1) * (clk.clkcnt_n + 1));
+}
+
+/** @brief Determine the best clock register value for a desired bus frequency
+ *  @param frequency Desired SPI clock frequency in Hz
+ *  @retval uint32_t opaque 32-bit register setting value
+ *  @note
+ *  	Speed settings are pre-calculated to optimise switching between devices.
+ *  	It is guaranteed that the frequency will not exceed the given target
+ *  	This method must be called with the CPU set to the correct clock frequency
+ *  	in use; if this changes then the calculation will be wrong.
+ */
+spi_dev_t::clock_t getClockReg(uint32_t freq)
+{
+	if(freq >= APB_CLK_FREQ) {
+		return clkEquSys;
+	}
+
+	if(freq < getClockFrequency(clkMin)) {
+		// use minimum possible clock
+		return clkMin;
+	}
+
+	uint8_t calN = 1;
+
+	spi_dev_t::clock_t bestReg{};
+	int32_t bestFreq = 0;
+
+	// find the best match
+	while(calN <= 0x3F) { // 0x3F max for N
+
+		spi_dev_t::clock_t reg{};
+		int32_t calFreq;
+		int32_t calPre;
+		int8_t calPreVari = -2;
+
+		reg.clkcnt_n = calN;
+
+		// Test different variants for prescale
+		while(calPreVari++ <= 1) {
+			calPre = (((APB_CLK_FREQ / (reg.clkcnt_n + 1)) / freq) - 1) + calPreVari;
+			if(calPre > 0x1FFF) {
+				reg.clkdiv_pre = 0x1FFF; // 8191
+			} else if(calPre <= 0) {
+				reg.clkdiv_pre = 0;
+			} else {
+				reg.clkdiv_pre = calPre;
+			}
+
+			reg.clkcnt_l = ((reg.clkcnt_n + 1) / 2);
+
+			// Test calculation
+			calFreq = getClockFrequency(reg);
+
+			if(calFreq == (int32_t)freq) {
+				// accurate match use it!
+				bestReg = reg;
+				break;
+			} else if(calFreq < (int32_t)freq) {
+				// never go over the requested frequency
+				if(abs(int(freq - calFreq)) < abs(int(freq - bestFreq))) {
+					bestFreq = calFreq;
+					bestReg = reg;
+				}
+			}
+		}
+		if(calFreq == (int32_t)freq) {
+			// accurate match use it!
+			break;
+		}
+		calN++;
+	}
+
+	//	debug_i("[0x%08X][%d]\t EQU: %d\t Pre: %d\t N: %d\t H: %d\t L: %d\t - Real Frequency: %d\n", bestReg.val, freq,
+	//			bestReg.clk_equ_sysclk, bestReg.clkdiv_pre, bestReg.clkcnt_n, bestReg.clkcnt_h, bestReg.clkcnt_l,
+	//			getClockFrequency(bestReg));
+
+	return bestReg;
+}
+
+} // namespace
+
 /* Controller */
 
 void Controller::begin()
@@ -90,6 +202,8 @@ void Controller::begin()
 	SPI1.slave.slave_mode = false;
 	SPI1.slave.sync_reset = true;
 
+	SPI1.ctrl1.val = 0;
+
 	// For testing, we'll be toggling a pin
 #ifdef SPI_ENABLE_TEST_PIN
 	GPIO_OUTPUT_SET(PIN_ISR_TEST, 0);
@@ -97,18 +211,6 @@ void Controller::begin()
 
 	ETS_SPI_INTR_ATTACH(ets_isr_t(isr), this);
 	ETS_SPI_INTR_ENABLE();
-}
-
-void IRAM_ATTR Controller::isr(Controller* spi)
-{
-	if(READ_PERI_REG(DPORT_SPI_INT_STATUS_REG) & DPORT_SPI_INT_STATUS_SPI1) {
-		SPI1.slave.trans_done = 0;
-		spi->transfer();
-	}
-
-	//   	if (READ_PERI_REG(DPORT_SPI_INT_STATUS_REG) & DPORT_SPI_INT_STATUS_SPI0) {
-	//   		SPI0.slave.val &= ~0x000003FF;
-	//    }
 }
 
 void Controller::end()
@@ -247,84 +349,14 @@ void Controller::configChanged(Device& dev)
 	dev.config.dirty = true;
 }
 
-static uint32_t getClockFrequency(const spi_dev_t::clock_t clk)
+void Controller::setSpeed(Device& dev, uint32_t frequency)
 {
-	return APB_CLK_FREQ / ((clk.clkdiv_pre + 1) * (clk.clkcnt_n + 1));
+	dev.config.reg.clock = getClockReg(frequency).val;
 }
 
-uint32_t Controller::clkRegToFreq(uint32_t regVal)
+uint32_t Controller::getSpeed(Device& dev) const
 {
-	return getClockFrequency({val: regVal});
-}
-
-uint32_t Controller::frequencyToClkReg(uint32_t freq)
-{
-	if(freq >= APB_CLK_FREQ) {
-		return SPI_CLK_EQU_SYSCLK;
-	}
-
-	spi_dev_t::clock_t minClock{.val = 0x7FFFF000};
-	uint32_t minFreq = getClockFrequency(minClock);
-	if(freq < minFreq) {
-		// use minimum possible clock
-		return minClock.val;
-	}
-
-	uint8_t calN = 1;
-
-	spi_dev_t::clock_t bestReg{};
-	int32_t bestFreq = 0;
-
-	// find the best match
-	while(calN <= 0x3F) { // 0x3F max for N
-
-		spi_dev_t::clock_t reg{};
-		int32_t calFreq;
-		int32_t calPre;
-		int8_t calPreVari = -2;
-
-		reg.clkcnt_n = calN;
-
-		// Test different variants for prescale
-		while(calPreVari++ <= 1) {
-			calPre = (((APB_CLK_FREQ / (reg.clkcnt_n + 1)) / freq) - 1) + calPreVari;
-			if(calPre > 0x1FFF) {
-				reg.clkdiv_pre = 0x1FFF; // 8191
-			} else if(calPre <= 0) {
-				reg.clkdiv_pre = 0;
-			} else {
-				reg.clkdiv_pre = calPre;
-			}
-
-			reg.clkcnt_l = ((reg.clkcnt_n + 1) / 2);
-
-			// Test calculation
-			calFreq = getClockFrequency(reg);
-
-			if(calFreq == (int32_t)freq) {
-				// accurate match use it!
-				bestReg = reg;
-				break;
-			} else if(calFreq < (int32_t)freq) {
-				// never go over the requested frequency
-				if(abs(int(freq - calFreq)) < abs(int(freq - bestFreq))) {
-					bestFreq = calFreq;
-					bestReg = reg;
-				}
-			}
-		}
-		if(calFreq == (int32_t)freq) {
-			// accurate match use it!
-			break;
-		}
-		calN++;
-	}
-
-	//	debug_i("[0x%08X][%d]\t EQU: %d\t Pre: %d\t N: %d\t H: %d\t L: %d\t - Real Frequency: %d\n", bestReg.val, freq,
-	//			bestReg.clk_equ_sysclk, bestReg.clkdiv_pre, bestReg.clkcnt_n, bestReg.clkcnt_h, bestReg.clkcnt_l,
-	//			getClockFrequency(bestReg));
-
-	return bestReg.val;
+	return getClockFrequency({val: dev.config.reg.clock});
 }
 
 void Controller::updateConfig(Device& dev)
@@ -495,6 +527,14 @@ void IRAM_ATTR Controller::startRequest()
 
 	auto& req = *trans.request;
 	auto& dev = *req.device;
+	auto& reg = dev.config.reg;
+
+	trans.addr = req.addr;
+	trans.outOffset = 0;
+	trans.inOffset = 0;
+	trans.inlen = 0;
+	trans.bitOrder = dev.getBitOrder();
+	trans.busy = true;
 
 	auto pinSet = dev.pinSet;
 	if(pinSet != activePinSet) {
@@ -516,18 +556,10 @@ void IRAM_ATTR Controller::startRequest()
 		activePinSet = pinSet;
 	}
 
-	trans.bitOrder = dev.getBitOrder();
-
-	auto& reg = dev.config.reg;
-	SPI1.ctrl.val = reg.ctrl;
-	SPI1.ctrl1.val = 0;
-	SPI1.pin.val = reg.pin;
-	SPI1.user.val = reg.user;
-
 	// Clock
-	auto clockReg = dev.getClockReg();
 	auto ioMux = READ_PERI_REG(PERIPHS_IO_MUX_CONF_U);
-	if(clockReg == SPI_CLK_EQU_SYSCLK) {
+	spi_dev_t::clock_t clk{.val{reg.clock}};
+	if(clk.clk_equ_sysclk) {
 		ioMux |= SPI1_CLK_EQU_SYS_CLK;
 	} else {
 		ioMux &= ~SPI1_CLK_EQU_SYS_CLK;
@@ -535,34 +567,144 @@ void IRAM_ATTR Controller::startRequest()
 		// In overlap mode, SPI0 sysclock selection overrides SPI1
 		if(!flags.spi0ClockChanged && activePinSet == PinSet::Overlap) {
 			if(ioMux & SPI0_CLK_EQU_SYS_CLK) {
-				spi_dev_t::clock_t div2{{
-					.clkcnt_l = 1,
-					.clkcnt_h = 0,
-					.clkcnt_n = 1,
-					.clkdiv_pre = 0,
-					.clk_equ_sysclk = 0,
-				}};
-				SPI0.clock.val = div2.val;
+				SPI0.clock.val = clkDiv2.val;
 				ioMux &= ~SPI0_CLK_EQU_SYS_CLK;
 				flags.spi0ClockChanged = true;
 			}
 		}
 	}
 	WRITE_PERI_REG(PERIPHS_IO_MUX_CONF_U, ioMux);
-	SPI1.clock.val = clockReg;
+	SPI1.clock.val = reg.clock;
 
-	trans.addrOffset = 0;
-	trans.outOffset = 0;
-	trans.inOffset = 0;
-	trans.inlen = 0;
+	SPI1.ctrl.val = reg.ctrl;
+	SPI1.pin.val = reg.pin;
 
-	transfer();
+	spi_dev_t::user_t user{.val{reg.user}};
+	spi_dev_t::user1_t user1{.val{reg.user1}};
+
+	// Setup command bits
+	if(req.cmdLen != 0) {
+		uint16_t cmd{req.cmd};
+		if(trans.bitOrder == MSBFIRST) {
+			// Command sent bit 7->0 then 15->8 so adjust ordering
+			cmd = bswap16(cmd << (16 - req.cmdLen));
+		}
+		spi_dev_t::user2_t user2{};
+		user2.usr_command_value = cmd;
+		user2.usr_command_bitlen = req.cmdLen - 1;
+		SPI1.user2.val = user2.val;
+		user.usr_command = true;
+	} else {
+		user.usr_command = false;
+	}
+
+	// Setup address bits
+	if(req.addrLen != 0) {
+		user1.usr_addr_bitlen = req.addrLen - 1;
+		user.usr_addr = true;
+	} else {
+		user.usr_addr = false;
+	}
+
+	// Setup dummy bits
+	if(req.dummyLen != 0) {
+		user1.usr_dummy_cyclelen = req.dummyLen - 1;
+		user.usr_dummy = true;
+	} else {
+		user.usr_dummy = false;
+	}
+
+	reg.user = user.val;
+	reg.user1 = user1.val;
+
+	nextTransaction();
 }
 
-/** @brief called from ISR
- *  @retval bool true when transaction has finished
- */
-void IRAM_ATTR Controller::transfer()
+void IRAM_ATTR Controller::nextTransaction()
+{
+	auto& req = *trans.request;
+	auto& cfg = req.device->config;
+
+	spi_dev_t::user_t user{.val{cfg.reg.user}};
+	spi_dev_t::user1_t user1{.val{cfg.reg.user1}};
+
+	// Setup outgoing data (MOSI)
+	unsigned outlen = req.out.length - trans.outOffset;
+	if(outlen != 0) {
+		if(req.out.isPointer) {
+			if(outlen > SPI_BUFSIZE) {
+				outlen = SPI_BUFSIZE;
+			}
+			memcpy((void*)SPI1.data_buf, req.out.ptr8 + trans.outOffset, ALIGNUP4(outlen));
+		} else {
+			SPI1.data_buf[0] = req.out.data32;
+		}
+		user1.usr_mosi_bitlen = (outlen * 8) - 1;
+		trans.outOffset += outlen;
+		user.usr_mosi = true;
+	} else {
+		user.usr_mosi = false;
+	}
+
+	// Setup incoming data (MISO)
+	unsigned inlen = req.in.length - trans.inOffset;
+	if(inlen != 0) {
+		if(inlen > SPI_BUFSIZE) {
+			inlen = SPI_BUFSIZE;
+		}
+		trans.inlen = inlen;
+		// In duplex mode data is read during MOSI stage
+		if(user.duplex) {
+			if(inlen > outlen) {
+				user1.usr_mosi_bitlen = (inlen * 8) - 1;
+			}
+			user.usr_miso = false;
+		} else {
+			user1.usr_miso_bitlen = (inlen * 8) - 1;
+			user.usr_miso = true;
+		}
+	} else {
+		user.usr_miso = false;
+	}
+
+	// Setup address
+	if(req.addrLen != 0) {
+		uint32_t addr = trans.addr;
+
+		if(trans.bitOrder == MSBFIRST) {
+			// Address sent MSB to LSB of register value, so shift up as required
+			addr <<= 32 - req.addrLen;
+		}
+
+		SPI1.addr = addr;
+
+		/*
+		 * This caters for in-only, out-only or (for full duplex modes) in/out transactions.
+		 * @todo We should probably identify invalid requests and reject them.
+		 */
+		trans.addr += std::max(outlen, inlen);
+	}
+
+	SPI1.user1.val = user1.val;
+	SPI1.user.val = user.val;
+
+	// Execute now
+	TESTPIN_LOW();
+	SPI1.cmd.usr = true;
+	TESTPIN_HIGH();
+
+	++stats.transCount;
+}
+
+void IRAM_ATTR Controller::isr(Controller* spi)
+{
+	if(READ_PERI_REG(DPORT_SPI_INT_STATUS_REG) & DPORT_SPI_INT_STATUS_SPI1) {
+		SPI1.slave.trans_done = 0;
+		spi->transactionDone();
+	}
+}
+
+void IRAM_ATTR Controller::transactionDone()
 {
 	TESTPIN_LOW();
 	TESTPIN_HIGH();
@@ -571,28 +713,23 @@ void IRAM_ATTR Controller::transfer()
 		return;
 	}
 
-	Request& req = *trans.request;
+	auto& req = *trans.request;
 
-	bool started = trans.busy;
-	trans.busy = true;
-
-	if(started) {
-		// Read incoming data
-		if(trans.inlen != 0) {
-			if(req.in.isPointer) {
-				memcpy(req.in.ptr8 + trans.inOffset, (const void*)SPI1.data_buf, ALIGNUP4(trans.inlen));
-			} else {
-				req.in.data32 = SPI1.data_buf[0];
-			}
-			trans.inOffset += trans.inlen;
-			TESTPIN_HIGH();
+	// Read incoming data
+	if(trans.inlen != 0) {
+		if(req.in.isPointer) {
+			memcpy(req.in.ptr8 + trans.inOffset, (const void*)SPI1.data_buf, ALIGNUP4(trans.inlen));
+		} else {
+			req.in.data32 = SPI1.data_buf[0];
 		}
+		trans.inOffset += trans.inlen;
+		TESTPIN_HIGH();
 	}
 
 	// Packet complete?
 	unsigned inlen = req.in.length - trans.inOffset;
 	unsigned outlen = req.out.length - trans.outOffset;
-	if(started && inlen == 0 && outlen == 0) {
+	if(inlen == 0 && outlen == 0) {
 		TESTPIN_LOW();
 		trans.busy = false;
 		req.busy = false;
@@ -603,125 +740,16 @@ void IRAM_ATTR Controller::transfer()
 		// Start the next packet, if there is one
 		if(trans.request != nullptr) {
 			startRequest();
-		} else {
+		} else if(flags.spi0ClockChanged) {
 			// All transfers have completed, set SPI0 clock back to full speed
-			if(flags.spi0ClockChanged) {
-				SET_PERI_REG_MASK(PERIPHS_IO_MUX_CONF_U, SPI0_CLK_EQU_SYS_CLK);
-				flags.spi0ClockChanged = false;
-			}
+			SET_PERI_REG_MASK(PERIPHS_IO_MUX_CONF_U, SPI0_CLK_EQU_SYS_CLK);
+			flags.spi0ClockChanged = false;
 		}
 		return;
 	}
 
 	// Set up next transfer
-
-	// Build register values in a temp is faster than modifying registers directly
-	struct {
-		spi_dev_t::user_t user;
-		spi_dev_t::user1_t user1;
-	} reg;
-	reg.user.val = SPI1.user.val;
-	reg.user1.val = SPI1.user1.val;
-
-	uint32_t addr = req.addr + trans.addrOffset;
-
-	// Most setup done in first transaction
-	if(!started) {
-		// Setup command bits
-		if(req.cmdLen != 0) {
-			uint16_t cmd = req.cmd;
-			if(trans.bitOrder == MSBFIRST) {
-				// Command sent bit 7->0 then 15->8 so adjust ordering
-				cmd = bswap16(cmd << (16 - req.cmdLen));
-			}
-			spi_dev_t::user2_t tmp{};
-			tmp.usr_command_value = cmd;
-			tmp.usr_command_bitlen = req.cmdLen - 1;
-			SPI1.user2.val = tmp.val;
-			reg.user.usr_command = 1;
-		} else {
-			reg.user.usr_command = 0;
-		}
-
-		// Setup address bits
-		if(req.addrLen != 0) {
-			reg.user1.usr_addr_bitlen = req.addrLen - 1;
-			reg.user.usr_addr = 1;
-		} else {
-			reg.user.usr_addr = 0;
-		}
-
-		// Setup dummy bits
-		if(req.dummyLen != 0) {
-			reg.user1.usr_dummy_cyclelen = req.dummyLen - 1;
-			reg.user.usr_dummy = 1;
-		} else {
-			reg.user.usr_dummy = 0;
-		}
-	}
-
-	// Setup next address
-	if(req.addrLen != 0) {
-		if(trans.bitOrder == MSBFIRST) {
-			// Address sent MSB to LSB of register value, so shift up as required
-			addr <<= 32 - req.addrLen;
-		}
-
-		SPI1.addr = addr;
-	}
-
-	// Setup outgoing data (MOSI)
-	if(outlen != 0) {
-		if(req.out.isPointer) {
-			if(outlen > SPI_BUFSIZE) {
-				outlen = SPI_BUFSIZE;
-			}
-			memcpy((void*)SPI1.data_buf, req.out.ptr8 + trans.outOffset, ALIGNUP4(outlen));
-		} else {
-			SPI1.data_buf[0] = req.out.data32;
-		}
-		reg.user1.usr_mosi_bitlen = (outlen * 8) - 1;
-		trans.outOffset += outlen;
-		reg.user.usr_mosi = 1;
-	} else {
-		reg.user.usr_mosi = 0;
-	}
-
-	// Setup incoming data (MISO)
-	if(inlen != 0) {
-		if(inlen > SPI_BUFSIZE) {
-			inlen = SPI_BUFSIZE;
-		}
-		trans.inlen = inlen;
-		// In duplex mode data is read during MOSI stage
-		if(reg.user.duplex) {
-			if(inlen > outlen) {
-				reg.user1.usr_mosi_bitlen = (inlen * 8) - 1;
-			}
-			reg.user.usr_miso = 0;
-		} else {
-			reg.user1.usr_miso_bitlen = (inlen * 8) - 1;
-			reg.user.usr_miso = 1;
-		}
-	} else {
-		reg.user.usr_miso = 0;
-	}
-
-	SPI1.user1.val = reg.user1.val;
-	SPI1.user.val = reg.user.val;
-
-	// Execute now
-	TESTPIN_LOW();
-	SPI1.cmd.usr = 1;
-	TESTPIN_HIGH();
-
-	/*
-	 * This caters for in-only, out-only or (for full duplex modes) in/out transactions.
-	 * @todo We should probably identify invalid requests and reject them.
-	 */
-	trans.addrOffset += std::max(outlen, inlen);
-
-	++stats.transCount;
+	nextTransaction();
 }
 
 } // namespace HSPI

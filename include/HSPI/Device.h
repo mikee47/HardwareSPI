@@ -59,19 +59,14 @@ public:
 	/** @brief Set maximum operating speed for device
 	 *  @param speed in Hz
 	 */
-	void setSpeed(uint32_t speed)
+	void setSpeed(uint32_t frequency)
 	{
-		clockReg = controller.frequencyToClkReg(speed);
+		controller.setSpeed(*this, frequency);
 	}
 
 	uint32_t getSpeed()
 	{
-		return controller.clkRegToFreq(clockReg);
-	}
-
-	uint32_t getClockReg()
-	{
-		return clockReg;
+		return controller.getSpeed(*this);
 	}
 
 	/*
@@ -136,7 +131,6 @@ protected:
 private:
 	Controller& controller;
 	Controller::Config config{}; ///< Private config used by Controller
-	uint32_t clockReg;			 ///< Computed value for a given bus speed
 	PinSet pinSet{PinSet::None};
 	uint8_t chipSelect{255};
 	BitOrder bitOrder{MSBFIRST};

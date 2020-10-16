@@ -11,7 +11,34 @@ The ESP8266 has limited I/O and the most useful way to expand it is using serial
    I2C: Can be fast-ish but more limited than SPI, however slave devices generally cheaper, more widely available and simpler to interface as they only require 2 pins. There does not appear to be actual hardware support though, so very inefficient.
    I2S: Designed for audio devices. Apparently the FIFO size is 1Kbyte.
    RS232: Tied in with RS485, Modbus, DMX512, etc. Well-supported with asynchronous driver.
-   SPI: Speed only limited by slave device capability, can be multiplexed ('overlapped') onto main flash SPI pins. It's probable that the two SPI modules are identical, but the additional pins for quad/dual modes only brought out for SPI0. This requires testing.
+   SPI: Speed generally limited by slave device capability, can be multiplexed ('overlapped') onto SPI0 (flash memory) pins. The two SPI modules are identical, but the additional pins for quad/dual modes are only brought out for SPI0. Three user chip selects are available in this mode.
+
+The purpose of this driver is to provide a consistent interface which makes better use of the hardware capabilities.
+
+-  Applications use drivers with a high-level interface to support specific devices (e.g. Flash memory, SPI RAM, LCD controllers, etc.)
+-  Device objects are attached to the stack via specified PinSet (overlapped or normal) and chip select
+-  Dual and Quad modes are supported via overlap pins. There are three variants of each depending on whether the command and address phases are required to be 1-bit transfers.
+-  A request object supports transfers of up to 64K. The controller splits these into smaller transactions as dictated by hardware.
+-  Asynchronous execution supported so application does not block during SPI transfer. Application may register callback to be notified when request has completed.
+-  For high-speed devices, blocking calls may be more appropriate and run with SPI interrupts disabled to minimise overhead
+
+
+SPI IO Modes:
+
+IO Mode  |  Command  |  Address   |  Data   | Notes
+-------  |  -------  |  -------   |  -----  |
+SPI      |     1     |     1      |    1    | Full-duplex
+SPIHD    |     1     |     1      |    1    | Half-duplex
+DUAL     |     1     |     1      |    2    | Half-duplex
+DIO      |     1     |     2      |    2    | Half-duplex
+SDI      |     2     |     2      |    2    | Half-duplex *
+QUAD     |     1     |     1      |    4    | Half-duplex
+QIO      |     1     |     4      |    4    | Half-duplex
+SQI      |     4     |     4      |    4    | Half-duplex *
+
+Note that SDI and SQI are not supported directly by hardware, but is implemented within the driver using the data phase only.
+For 8-bit command and 24-bit address, this limits each transaction to 60 bytes.
+
 
 WS2811
 ~~~~~~
