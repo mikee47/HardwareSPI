@@ -570,6 +570,20 @@ void IRAM_ATTR Controller::startRequest()
 	spi_dev_t::user1_t user1{.val{cfg.reg.user1}};
 
 	if(trans.ioMode == IoMode::SDI || trans.ioMode == IoMode::SQI) {
+		// Setup command bits
+		if(req.cmdLen == 16) {
+			auto cmd = req.cmd;
+			if(trans.bitOrder == MSBFIRST) {
+				trans.cmd[0] = (req.cmd >> 8);
+				trans.cmd[1] = req.cmd;
+			} else {
+				trans.cmd[0] = req.cmd;
+				trans.cmd[1] = (req.cmd >> 8);
+			}
+		} else if(req.cmdLen == 8) {
+			trans.cmd[0] = req.cmd;
+		}
+
 		user.usr_command = false;
 		user.usr_addr = false;
 		user.usr_mosi = true;
@@ -629,9 +643,7 @@ void IRAM_ATTR Controller::nextTransaction()
 	unsigned outlen = req.out.length - trans.outOffset;
 	if(outlen != 0) {
 		if(req.out.isPointer) {
-			if(outlen > SPI_BUFSIZE) {
-				outlen = SPI_BUFSIZE;
-			}
+			outlen = std::min(outlen, SPI_BUFSIZE);
 			memcpy((void*)SPI1.data_buf, req.out.ptr8 + trans.outOffset, ALIGNUP4(outlen));
 		} else {
 			SPI1.data_buf[0] = req.out.data32;
@@ -646,9 +658,7 @@ void IRAM_ATTR Controller::nextTransaction()
 	// Setup incoming data (MISO)
 	unsigned inlen = req.in.length - trans.inOffset;
 	if(inlen != 0) {
-		if(inlen > SPI_BUFSIZE) {
-			inlen = SPI_BUFSIZE;
-		}
+		inlen = std::min(inlen, SPI_BUFSIZE);
 		trans.inlen = inlen;
 		// In duplex mode data is read during MOSI stage
 		if(user.duplex) {
@@ -675,10 +685,6 @@ void IRAM_ATTR Controller::nextTransaction()
 
 		SPI1.addr = addr;
 
-		/*
-		 * This caters for in-only, out-only or (for full duplex modes) in/out transactions.
-		 * @todo We should probably identify invalid requests and reject them.
-		 */
 		trans.addr += std::max(outlen, inlen);
 	}
 
@@ -706,20 +712,9 @@ void IRAM_ATTR Controller::nextTransactionSDQI()
 	spi_dev_t::user1_t user1{.val{cfg.reg.user1}};
 
 	uint8_t buffer[SPI_BUFSIZE];
-	uint8_t* bufPtr = buffer;
-
-	// Setup command bits
-	if(req.cmdLen == 16) {
-		if(trans.bitOrder == MSBFIRST) {
-			*bufPtr++ = (req.cmd >> 8);
-			*bufPtr++ = req.cmd;
-		} else {
-			*bufPtr++ = req.cmd;
-			*bufPtr++ = (req.cmd >> 8);
-		}
-	} else if(req.cmdLen == 8) {
-		*bufPtr++ = req.cmd;
-	}
+	buffer[0] = trans.cmd[0];
+	buffer[1] = trans.cmd[1];
+	auto bufPtr = &buffer[req.cmdLen / 8];
 
 	// Setup address
 	if(req.addrLen != 0) {

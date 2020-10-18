@@ -132,19 +132,16 @@ enum class PinSet {
 	Overlap, ///< Overlapped with SPI 0
 };
 
-inline uint16_t bswap16(uint16_t data)
+// Note: These are faster than __builtin_bswapNN functions
+
+inline uint16_t bswap16(uint16_t value)
 {
-	return __builtin_bswap16(data);
+	return (value >> 8) | (value << 8);
 }
 
-inline uint32_t bswap24(uint32_t data)
+inline uint32_t bswap32(uint32_t value)
 {
-	return __builtin_bswap32(data) >> 8;
-}
-
-inline uint32_t bswap32(uint32_t data)
-{
-	return __builtin_bswap32(data);
+	return (value >> 24) | ((value >> 8) & 0xff00) | ((value << 8) & 0xff0000) | (value << 24);
 }
 
 /**
@@ -279,6 +276,8 @@ private:
 	};
 	Flags flags{};
 
+	static constexpr size_t SPI_BUFSIZE{64};
+
 	// State of the current transaction in progress
 	struct Transaction {
 		Request* request;   ///< The current request being executed
@@ -290,6 +289,8 @@ private:
 		// Flags
 		uint8_t bitOrder : 1;
 		volatile uint8_t busy : 1;
+		// Used in SDI/SQI modes
+		uint8_t cmd[2];
 	};
 	Transaction trans{};
 };
