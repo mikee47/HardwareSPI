@@ -85,8 +85,6 @@ namespace HSPI
 {
 class Device;
 
-//#define SPI_DEBUG  1
-
 /**
  * @brief SPI clock polarity (CPOL) and phase (CPHA)
  */
@@ -132,17 +130,6 @@ enum class PinSet {
 	None,	///< Disabled
 	Normal,  ///< Standard HSPI pins
 	Overlap, ///< Overlapped with SPI 0
-};
-
-struct Stats {
-	uint32_t waitCycles;
-	uint32_t transCount;
-
-	void clear() volatile
-	{
-		waitCycles = 0;
-		transCount = 0;
-	}
 };
 
 inline uint16_t bswap16(uint16_t data)
@@ -241,7 +228,19 @@ public:
 
 	uint32_t getSpeed(Device& dev) const;
 
+#ifdef HSPI_ENABLE_STATS
+	struct Stats {
+		uint32_t waitCycles;
+		uint32_t transCount;
+
+		void clear() volatile
+		{
+			waitCycles = 0;
+			transCount = 0;
+		}
+	};
 	static volatile Stats stats;
+#endif
 
 protected:
 	friend Device;

@@ -37,10 +37,13 @@
 #include <espinc/spi_struct.h>
 #include <espinc/pin_mux_register.h>
 #include <Platform/Timers.h>
+#include "Debug.h"
 
 namespace HSPI
 {
-volatile Stats Controller::stats;
+#ifdef HSPI_ENABLE_STATS
+volatile Controller::Stats Controller::stats;
+#endif
 
 // GPIO pin numbers for SPI
 #define PIN_HSPI_MISO 12
@@ -50,28 +53,10 @@ volatile Stats Controller::stats;
 #define PIN_SPI_CS1 1
 #define PIN_SPI_CS2 0
 
-/* SPI interrupt status register address definition for determining the interrupt source */
+// SPI interrupt status register address definition for determining the interrupt source
 #define DPORT_SPI_INT_STATUS_REG 0x3ff00020
 #define DPORT_SPI_INT_STATUS_SPI0 BIT4
 #define DPORT_SPI_INT_STATUS_SPI1 BIT7
-
-//#define SPI_ENABLE_TEST_PIN
-
-#ifdef SPI_ENABLE_TEST_PIN
-// For testing ISR latency, etc.
-#define PIN_ISR_TEST 4
-
-#define TESTPIN_HIGH()
-#define TESTPIN_LOW()
-#define TESTPIN_TOGGLE() GPO ^= BIT(PIN_ISR_TEST)
-#else
-#define TESTPIN_HIGH()
-#define TESTPIN_LOW()
-#define TESTPIN_TOGGLE()
-#endif
-
-// SPI FIFO
-#define SPI_BUFSIZE sizeof(SPI1.data_buf)
 
 namespace
 {
@@ -204,10 +189,7 @@ void Controller::begin()
 
 	SPI1.ctrl1.val = 0;
 
-	// For testing, we'll be toggling a pin
-#ifdef SPI_ENABLE_TEST_PIN
-	GPIO_OUTPUT_SET(PIN_ISR_TEST, 0);
-#endif
+	TESTPIN_SETUP();
 
 	ETS_SPI_INTR_ATTACH(ets_isr_t(isr), this);
 	ETS_SPI_INTR_ENABLE();
@@ -513,17 +495,21 @@ void Controller::execute(Request& req)
 		ETS_SPI_INTR_ENABLE();
 	} else {
 		// Otherwise block and poll
+#ifdef HSPI_ENABLE_STATS
 		CpuCycleTimer timer;
+#endif
 		while(req.busy) {
 			isr(this);
 		}
+#ifdef HSPI_ENABLE_STATS
 		stats.waitCycles += timer.elapsedTicks();
+#endif
 	}
 }
 
 void IRAM_ATTR Controller::startRequest()
 {
-	TESTPIN_TOGGLE();
+	TESTPIN1_HIGH();
 
 	auto& req = *trans.request;
 	auto& dev = *req.device;
@@ -700,11 +686,12 @@ void IRAM_ATTR Controller::nextTransaction()
 	SPI1.user.val = user.val;
 
 	// Execute now
-	TESTPIN_LOW();
+	TESTPIN2_HIGH();
 	SPI1.cmd.usr = true;
-	TESTPIN_HIGH();
 
+#ifdef HSPI_ENABLE_STATS
 	++stats.transCount;
+#endif
 }
 
 /*
@@ -778,11 +765,12 @@ void IRAM_ATTR Controller::nextTransactionSDQI()
 	SPI1.user.val = user.val;
 
 	// Execute now
-	TESTPIN_LOW();
+	TESTPIN2_HIGH();
 	SPI1.cmd.usr = true;
-	TESTPIN_HIGH();
 
+#ifdef HSPI_ENABLE_STATS
 	++stats.transCount;
+#endif
 }
 
 void IRAM_ATTR Controller::isr(Controller* spi)
@@ -795,8 +783,7 @@ void IRAM_ATTR Controller::isr(Controller* spi)
 
 void IRAM_ATTR Controller::transactionDone()
 {
-	TESTPIN_LOW();
-	TESTPIN_HIGH();
+	TESTPIN2_LOW();
 
 	if(trans.request == nullptr) {
 		return;
@@ -813,12 +800,11 @@ void IRAM_ATTR Controller::transactionDone()
 		}
 		trans.inOffset += trans.inlen;
 		trans.inlen = 0;
-		TESTPIN_HIGH();
 	}
 
 	// Packet complete?
 	if(trans.inOffset >= req.in.length && trans.outOffset >= req.out.length) {
-		TESTPIN_LOW();
+		TESTPIN1_LOW();
 		trans.busy = false;
 		req.busy = false;
 		// Note next packet in chain before invoking callback
