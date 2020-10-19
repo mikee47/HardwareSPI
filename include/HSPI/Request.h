@@ -142,22 +142,31 @@ struct Request {
 		busy = false;
 	}
 
-	void setCommand8(uint8_t command)
+	void setCommand(uint16_t command, uint8_t bitCount)
 	{
 		cmd = command;
-		cmdLen = 8;
+		cmdLen = bitCount;
+	}
+
+	void setCommand8(uint8_t command)
+	{
+		setCommand(command, 8);
 	}
 
 	void setCommand16(uint16_t command)
 	{
-		cmd = command;
-		cmdLen = 16;
+		setCommand(command, 16);
+	}
+
+	void setAddress(uint32_t address, uint8_t bitCount)
+	{
+		addr = address;
+		addrLen = bitCount;
 	}
 
 	void setAddress24(uint32_t address)
 	{
-		addr = address;
-		addrLen = 24;
+		setAddress(address, 24);
 	}
 };
 

@@ -35,6 +35,7 @@
 #include <esp_systemapi.h>
 #include <espinc/spi_register.h>
 #include <espinc/spi_struct.h>
+#include <espinc/gpio_struct.h>
 #include <espinc/pin_mux_register.h>
 #include <Platform/Timers.h>
 #include "Debug.h"
@@ -57,6 +58,21 @@ volatile Controller::Stats Controller::stats;
 #define DPORT_SPI_INT_STATUS_REG 0x3ff00020
 #define DPORT_SPI_INT_STATUS_SPI0 BIT4
 #define DPORT_SPI_INT_STATUS_SPI1 BIT7
+
+// Enable the given pin as a chip select
+#define CS_ENABLE(cspin, func)                                                                                         \
+	{                                                                                                                  \
+		PIN_FUNC_SELECT(PERIPHS_GPIO_MUX_REG(cspin), func);                                                            \
+	}
+
+// Revert chip select to GPIO, output HIGH (CS inactive)
+#define CS_DISABLE(cspin, func)                                                                                        \
+	{                                                                                                                  \
+		GPIO.enable_w1ts = BIT(cspin);                                                                                 \
+		GPIO.out_w1ts = BIT(cspin);                                                                                    \
+		GPIO.pin[cspin].val = 0;                                                                                       \
+		PIN_FUNC_SELECT(PERIPHS_GPIO_MUX_REG(cspin), func);                                                            \
+	}
 
 namespace
 {
@@ -170,7 +186,6 @@ spi_dev_t::clock_t getClockReg(uint32_t freq)
 
 } // namespace
 
-/* Controller */
 
 void Controller::begin()
 {
@@ -257,13 +272,13 @@ bool Controller::startDevice(Device& dev, PinSet pinSet, uint8_t chipSelect)
 	// Enable Hardware CS
 	switch(chipSelect) {
 	case 0:
-		PIN_FUNC_SELECT(PERIPHS_GPIO_MUX_REG(PIN_HSPI_CS0), FUNC_HSPI_CS0);
+		CS_ENABLE(PIN_HSPI_CS0, FUNC_HSPI_CS0);
 		break;
 	case 1:
-		PIN_FUNC_SELECT(PERIPHS_GPIO_MUX_REG(PIN_SPI_CS1), FUNC_SPICS1);
+		CS_ENABLE(PIN_SPI_CS1, FUNC_SPICS1);
 		break;
 	case 2:
-		PIN_FUNC_SELECT(PERIPHS_GPIO_MUX_REG(PIN_SPI_CS2), FUNC_SPICS2);
+		CS_ENABLE(PIN_SPI_CS2, FUNC_SPICS2);
 		break;
 	}
 
@@ -293,6 +308,7 @@ void Controller::stopDevice(Device& dev)
 			PIN_FUNC_SELECT(PERIPHS_GPIO_MUX_REG(PIN_HSPI_MOSI), FUNC_GPIO13);
 			PIN_FUNC_SELECT(PERIPHS_GPIO_MUX_REG(PIN_HSPI_CLK), FUNC_GPIO14);
 		}
+		break;
 
 	case PinSet::None:
 		return;
@@ -304,13 +320,13 @@ void Controller::stopDevice(Device& dev)
 	auto cs = dev.chipSelect;
 	switch(cs) {
 	case 0:
-		PIN_FUNC_SELECT(PERIPHS_GPIO_MUX_REG(PIN_HSPI_CS0), FUNC_GPIO15);
+		CS_DISABLE(PIN_HSPI_CS0, FUNC_GPIO15);
 		break;
 	case 1:
-		PIN_FUNC_SELECT(PERIPHS_GPIO_MUX_REG(PIN_SPI_CS1), FUNC_GPIO1);
+		CS_DISABLE(PIN_SPI_CS1, FUNC_GPIO1);
 		break;
 	case 2:
-		PIN_FUNC_SELECT(PERIPHS_GPIO_MUX_REG(PIN_SPI_CS2), FUNC_GPIO0);
+		CS_DISABLE(PIN_SPI_CS2, FUNC_GPIO0);
 		break;
 	default:
 		assert(false);

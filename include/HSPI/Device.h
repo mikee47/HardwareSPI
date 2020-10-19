@@ -56,6 +56,16 @@ public:
 		end();
 	}
 
+	PinSet getPinSet() const
+	{
+		return pinSet;
+	}
+
+	uint8_t getChipSelect() const
+	{
+		return chipSelect;
+	}
+
 	/** @brief Set maximum operating speed for device
 	 *  @param speed in Hz
 	 */
