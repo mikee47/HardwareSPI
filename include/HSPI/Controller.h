@@ -80,6 +80,7 @@
 #include <esp_attr.h>
 #include "Request.h"
 #include <bitset>
+#include <FlashString/Array.hpp>
 
 namespace HSPI
 {
@@ -108,6 +109,37 @@ enum class IoMode : uint8_t {
 	QIO,   ///< Four bits per clock for Address and Data, 1-bit for Command
 	SQI,   ///< Four bits per clock for Command, Address and Data
 };
+
+/*
+ * Details for each IO Mode
+ *
+ * Mode, clock bits, address bits, databits, duplex
+ */
+#define HSPI_IOMODE_MAP(XX)                                                                                            \
+	XX(SPI, 1, 1, 1, true)                                                                                             \
+	XX(SPIHD, 1, 1, 1, false)                                                                                          \
+	XX(DUAL, 1, 1, 2, false)                                                                                           \
+	XX(DIO, 1, 2, 2, false)                                                                                            \
+	XX(SDI, 2, 2, 2, false)                                                                                            \
+	XX(QUAD, 1, 1, 4, false)                                                                                           \
+	XX(QIO, 1, 4, 4, false)                                                                                            \
+	XX(SQI, 4, 4, 4, false)
+
+struct IoModeInfo {
+	const FlashString* name;
+	IoMode mode;
+	uint8_t clockBits : 2;
+	uint8_t addrressBits : 2;
+	uint8_t dataBits : 2;
+	bool duplex : 1;
+};
+
+const IoModeInfo getIoModeInfo(IoMode mode);
+
+inline String toString(IoMode mode)
+{
+	return *getIoModeInfo(mode).name;
+}
 
 /*
  * TODO: Add dual/quad modes, etc.
