@@ -184,22 +184,7 @@ spi_dev_t::clock_t getClockReg(uint32_t freq)
 	return bestReg;
 }
 
-#define XX(name, clk, addr, data, duplex) DEFINE_FSTR_LOCAL(ioModeStr_##name, #name)
-HSPI_IOMODE_MAP(XX)
-#undef XX
-
-#define XX(name, clk, addr, data, duplex)                                                                              \
-	{                                                                                                                  \
-		&ioModeStr_##name, IoMode::name, clk, addr, data, duplex                                                       \
-	}
-DEFINE_FSTR_ARRAY(ioModeInfo, IoModeInfo)
-
 } // namespace
-
-const IoModeInfo getIoModeInfo(IoMode mode)
-{
-	return ioModeInfo[unsigned(mode)];
-}
 
 void Controller::begin()
 {
