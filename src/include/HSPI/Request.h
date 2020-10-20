@@ -135,6 +135,16 @@ struct Request {
 	}
 
 	/** @} */
+
+	/**
+	 * @brief Set request to asynchronous execution with optional callback
+	 */
+	void setAsync(Callback callback = nullptr, void* param = nullptr)
+	{
+		async = true;
+		this->callback = callback;
+		this->param = param;
+	}
 };
 
 } // namespace HSPI

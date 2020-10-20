@@ -516,7 +516,7 @@ void Controller::updateConfig(Device& dev)
 void Controller::execute(Request& req)
 {
 	req.next = nullptr;
-	req.busy = 1;
+	req.busy = true;
 
 	auto dev = req.device;
 	if(dev->config.dirty) {
@@ -537,37 +537,46 @@ void Controller::execute(Request& req)
 			pkt = pkt->next;
 		}
 		pkt->next = &req;
+		if(req.async) {
+			ETS_SPI_INTR_ENABLE();
+			return;
+		}
 	} else {
 		// Not currently running, so do this one now
 		trans.request = &req;
-		if(req.task) {
-			executeTask();
-		} else {
-			startRequest();
+		startRequest();
+		if(req.async && !req.task) {
+			ETS_SPI_INTR_ENABLE();
+			return;
 		}
 	}
 
-	// Use interrupts for asynchronous mode
-	if(req.async) {
-		ETS_SPI_INTR_ENABLE();
-	} else {
-		executeTask();
-	}
-}
-
-void Controller::executeTask()
-{
-	ETS_SPI_INTR_DISABLE();
-
-	startRequest();
-
-	// Block and poll
+	// Otherwise block and poll
 #ifdef HSPI_ENABLE_STATS
 	CpuCycleTimer timer;
 #endif
-	while(trans.request->busy) {
+	while(req.busy) {
 		isr(this);
 	}
+#ifdef HSPI_ENABLE_STATS
+	stats.waitCycles += timer.elapsedTicks();
+#endif
+}
+
+/*
+ * Called from task queue to block on high-speed request processing.
+ */
+void Controller::executeTask()
+{
+	// Block and poll, but only on this request
+#ifdef HSPI_ENABLE_STATS
+	CpuCycleTimer timer;
+#endif
+	auto req = trans.request;
+	while(req == trans.request) {
+		isr(this);
+	}
+	assert(!trans.request->busy);
 #ifdef HSPI_ENABLE_STATS
 	stats.waitCycles += timer.elapsedTicks();
 #endif
@@ -868,10 +877,12 @@ void IRAM_ATTR Controller::transactionDone()
 		req.device->transferComplete(req);
 		// Start the next packet, if there is one
 		if(trans.request != nullptr) {
+			startRequest();
 			if(trans.request->task) {
-				System.queueCallback([](void* self) { static_cast<Controller*>(self)->executeTask(); }, this);
+				ETS_SPI_INTR_DISABLE();
+				System.queueCallback([](void* param) { static_cast<Controller*>(param)->executeTask(); }, this);
 			} else {
-				startRequest();
+				ETS_SPI_INTR_ENABLE();
 			}
 		} else if(flags.spi0ClockChanged) {
 			// All transfers have completed, set SPI0 clock back to full speed

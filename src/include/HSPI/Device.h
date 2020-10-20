@@ -151,7 +151,7 @@ public:
 protected:
 	friend Controller;
 
-	virtual void transferComplete(Request& request)
+	void IRAM_ATTR transferComplete(Request& request)
 	{
 		if(request.callback) {
 			request.callback(request);
