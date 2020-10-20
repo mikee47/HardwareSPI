@@ -1,3 +1,15 @@
+/****
+ * Sming Framework Project - Open Source framework for high efficiency native ESP8266 development.
+ * Created 2015 by Skurydin Alexey
+ * http://github.com/anakod/Sming
+ * All files of the Sming Core are provided under the LGPL v3 license.
+ *
+ * SpiRam.h
+ *
+ * @author: October 2020 - mikee47 <mike@sillyhouse.net>
+ *
+*/
+
 #pragma once
 
 #include "Device.h"
@@ -6,18 +18,25 @@ namespace HSPI
 {
 /**
  * @brief IS62/65WVS2568GALL fast serial RAM
+ * @ingroup hw_spi
  */
 class SpiRam : public Device
 {
 public:
 	using Device::Device;
 
-	enum class Mode {
-		Byte = 0x00,
-		Page = 0x80,
-		Sequential = 0x40,
+	/**
+	 * @brief Memory operating mode determines how read/write operations are performed
+	 */
+	enum class OpMode {
+		Byte = 0x00,	   ///< Limited to one byte
+		Page = 0x80,	   ///< Limited to single 32-bit page
+		Sequential = 0x40, ///< Access entire memory array (DEFAULT)
 	};
 
+	/**
+	 * @brief Configure the RAM into a known operating mode
+	 */
 	bool begin(PinSet pinSet, uint8_t chipSelect)
 	{
 		if(!Device::begin(pinSet, chipSelect)) {
@@ -37,16 +56,20 @@ public:
 		execute(req);
 		Device::setIoMode(IoMode::SPIHD);
 
-		debug_i("RDMR = 0x%08x", readMode());
+		debug_i("RDMR = 0x%08x", getOpMode());
 
-		writeMode(Mode::Sequential);
+		setOpMode(OpMode::Sequential);
 		setIoMode(IoMode::SQI);
 
 		return true;
 	}
 
 	/**
+	 * @brief IO Mode switching requires device support
+	 * @param mode Requested new mode
 	 * @retval IoMode Previous mode
+	 *
+	 * If requested mode is not supported the current mode will be returned.
 	 */
 	IoMode setIoMode(IoMode mode)
 	{
@@ -75,7 +98,7 @@ public:
 		return oldMode;
 	}
 
-	void writeMode(Mode mode)
+	void setOpMode(OpMode mode)
 	{
 		auto savedIoMode = setIoMode(IoMode::SPIHD);
 
@@ -89,12 +112,27 @@ public:
 		req.setCommand8(0x01); // WRMR
 		req.out.set8(uint8_t(mode));
 		execute(req);
-		this->mode = mode;
+		this->opMode = mode;
 
 		setIoMode(savedIoMode);
 	}
 
-	Mode readMode()
+	/**
+	 * @brief Get current operating mode (cached value)
+	 * @retval OpMode
+	 *
+	 * No device access is performed.
+	 */
+	OpMode getOpMode() const
+	{
+		return opMode;
+	}
+
+	/**
+	 * @brief Read current operating mode from device
+	 * @retval OpMode
+	 */
+	OpMode readOpMode()
 	{
 		// requires SPIHD
 		auto savedIoMode = setIoMode(IoMode::SPIHD);
@@ -103,12 +141,19 @@ public:
 		req.setCommand8(0x05); // RDMR
 		req.in.set8(0);
 		execute(req);
-		mode = Mode(req.in.data8);
+		opMode = OpMode(req.in.data8);
 
 		setIoMode(savedIoMode);
-		return mode;
+		return opMode;
 	}
 
+	/**
+	 * @brief Write a block of data
+	 * @param address
+	 * @param data
+	 * @param len
+	 * @note Limited by current operating mode
+	 */
 	void write(uint32_t address, const void* data, size_t len)
 	{
 		Request req;
@@ -118,6 +163,13 @@ public:
 		execute(req);
 	}
 
+	/**
+	 * @brief Read a block of data
+	 * @param address
+	 * @param data
+	 * @param len
+	 * @note Limited by current operating mode
+	 */
 	void read(uint32_t address, void* buffer, size_t len)
 	{
 		Request req;
@@ -129,7 +181,7 @@ public:
 	}
 
 private:
-	Mode mode{Mode::Sequential};
+	OpMode opMode{OpMode::Sequential};
 };
 
 } // namespace HSPI
