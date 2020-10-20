@@ -14,6 +14,12 @@
 
 #include <WString.h>
 
+/**
+ * @defgroup hw_spi SPI Hardware support
+ * @brief    Provides hardware SPI support
+ * @{
+ */
+
 namespace HSPI
 {
 /**
@@ -102,3 +108,5 @@ inline uint32_t bswap32(uint32_t value)
 }
 
 } // namespace HSPI
+
+/** @} */

@@ -70,10 +70,6 @@
  *
  */
 
-/** @defgroup hw_spi SPI Hardware support
- *  @brief    Provides hardware SPI support
- */
-
 #pragma once
 
 #include <stdint.h>
@@ -86,6 +82,11 @@ namespace HSPI
 {
 class Device;
 
+/**
+ * @brief Manages access to SPI hardware
+ *
+ * @ingroup hw_spi
+ */
 class Controller
 {
 public:
@@ -101,10 +102,6 @@ public:
 		} reg;
 	};
 
-	/** @brief  Instantiate hardware SPI object
-	 *  @addtogroup hw_spi
-	 *  @{
-	 */
 	Controller()
 	{
 	}

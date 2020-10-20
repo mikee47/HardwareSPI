@@ -21,10 +21,6 @@
  * Device classes may be defined to add specific functionality, such as mode switching.
 */
 
-/** @defgroup hw_spi SPI Hardware support
- *  @brief    Provides hardware SPI support
- */
-
 #pragma once
 
 #include "Controller.h"
@@ -32,6 +28,11 @@
 
 namespace HSPI
 {
+/**
+ * @brief Manages a specific SPI device instance attached to a controller
+ *
+ * @ingroup hw_spi
+ */
 class Device
 {
 public:

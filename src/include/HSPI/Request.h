@@ -13,90 +13,19 @@
  *
  */
 
-/** @defgroup hw_spi SPI Hardware support
- *  @brief    Provides hardware SPI support
- */
-
 #pragma once
 
-#include <stdint.h>
-#include <esp_attr.h>
+#include "Data.h"
 
 namespace HSPI
 {
 class Device;
-
-/**
- * @brief Data can be specified directly within `Data`, or as a buffer reference
- * @note Regular SPI is full duplex, so we send the same number of bytes as we receive.
- * We consider the command/address phases separately, because in master mode they're always a write operation.
- * For dual/quad modes the bus is half-duplex, however like regular SPI a transaction is typically
- * (but not always) either read OR write, not both.
- * Therefore we need to cater for sending and receiving arbitrary numbers of bytes in a transaction,
- * regardless of mode.
- *
- * @note Command or address are stored in native byte order and rearranged according to the requested
- * byteOrder setting. Data is always sent and received LSB first (as stored in memory) so any re-ordering
- * must be done by the device or application.
- *
- */
-struct Data {
-	union {
-		uint8_t data8;
-		uint16_t data16;
-		uint32_t data32;
-		uint8_t data[4];
-		void* ptr; ///< Pointer to data
-		const void* cptr;
-		uint8_t* ptr8;
-	};
-	uint16_t length : 15;   ///< Number of bytes of data
-	uint16_t isPointer : 1; ///< If set, data is referenced indirectly, otherwise it's stored directly
-
-	Data()
-	{
-		clear();
-	}
-
-	void clear()
-	{
-		data32 = 0;
-		length = 0;
-		isPointer = 0;
-	}
-
-	void set(const void* data, uint16_t count)
-	{
-		cptr = data;
-		length = count;
-		isPointer = 1;
-	}
-
-	void set8(uint8_t data)
-	{
-		set32(data, 1);
-	}
-
-	void set16(uint16_t data)
-	{
-		set32(data, 2);
-	}
-
-	/** @brief Set 32-bit data
-	 *  @param data
-	 *  @param len in bytes (1 - 4)
-	 */
-	void set32(uint32_t data, uint8_t len = 4)
-	{
-		data32 = data;
-		length = len;
-		isPointer = 0;
-	}
-};
-
 struct Request;
 
-/** @brief SPI callback routine */
+/**
+ * @brief SPI completion callback routine
+ * @ingroup hw_spi
+ */
 typedef void (*Callback)(Request& request);
 
 /**
@@ -111,6 +40,7 @@ typedef void (*Callback)(Request& request);
  * prepared whilst the other is in flight. This helps to minimises the setup latency
  * between SPI transactions.
  *
+ * @ingroup hw_spi
  */
 struct Request {
 	Device* device{nullptr};	///< Target device for this request
@@ -145,32 +75,66 @@ struct Request {
 		task = false;
 	}
 
+	/**
+	 * @name Set value for command phase
+	 * @{
+	 */
+
+	/**
+	 * @param command
+	 * @param bitCount Length of command in bits
+	 */
 	void setCommand(uint16_t command, uint8_t bitCount)
 	{
 		cmd = command;
 		cmdLen = bitCount;
 	}
 
+	/**
+	 * @brief Set 8-bit command
+	 * @param command
+	 */
 	void setCommand8(uint8_t command)
 	{
 		setCommand(command, 8);
 	}
 
+	/**
+	 * @brief Set 16-bit command
+	 * @param command
+	 */
 	void setCommand16(uint16_t command)
 	{
 		setCommand(command, 16);
 	}
 
+	/** @} */
+
+	/**
+	 * @name Set value for address phase
+	 * @{
+	 */
+
+	/**
+	 * @param address
+	 * @param bitCount Length of address in bits
+	 */
 	void setAddress(uint32_t address, uint8_t bitCount)
 	{
 		addr = address;
 		addrLen = bitCount;
 	}
 
+	/**
+	 * @brief Set 24-bit address
+	 * @param address
+	 */
 	void setAddress24(uint32_t address)
 	{
 		setAddress(address, 24);
 	}
+
+	/** @} */
 };
 
 } // namespace HSPI
