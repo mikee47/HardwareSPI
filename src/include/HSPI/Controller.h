@@ -160,9 +160,14 @@ protected:
 private:
 	static void updateConfig(Device& dev);
 
-	/**
-	 * @brief Start transfer of a new request (trans.request)
-	 * @note May be called from interrupt context at completion of previous request
+	/*
+	 * Called from task context, executes request in blocking mode
+	 */
+	void executeTask();
+
+	/*
+	 * Start transfer of a new request (trans.request)
+	 * May be called from interrupt context at completion of previous request
 	 */
 	void startRequest();
 

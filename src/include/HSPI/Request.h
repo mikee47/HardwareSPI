@@ -99,24 +99,26 @@ struct Request;
 /** @brief SPI callback routine */
 typedef void (*Callback)(Request& request);
 
-/** @brief Defines an SPI Request Packet
- *  @todo SPI Master can keep a list of these to allow queueing of transfers
- *  Client still needs to deal with buffer allocation though, so may not be necessary as
- *  a better model is for device/client to queue another transaction via callback.
- *  At present we're looking just at address-based transactions.
+/**
+ * @brief Defines an SPI Request Packet
  *
- *  Request fields may be accessed directly or by use of helper methods.
+ * Request fields may be accessed directly or by use of helper methods.
  *
- *  Note that we chain requests, but typically the chain will be short.
- *  For example, an application may use two Requests, so one can be prepared whilst the other
- *  is in flight. This helps to minimises the setup latency between SPI transactions.
+ * Application is responsible for managing Request object construction/destruction.
+ * Queuing is managed as a linked list so the objects aren't copied.
+ *
+ * Applications will typically only require a couple of Request objects, so one can be
+ * prepared whilst the other is in flight. This helps to minimises the setup latency
+ * between SPI transactions.
+ *
  */
 struct Request {
 	Device* device{nullptr};	///< Target device for this request
-	Request* next{nullptr};		///< Controller uses this to chain requests
+	Request* next{nullptr};		///< Controller uses this to queue requests
 	uint16_t cmd{0};			///< Command value
 	uint8_t cmdLen{0};			///< Command bits, 0 - 16
 	uint8_t async : 1;			///< Set for asynchronous operation
+	uint8_t task : 1;			///< Controller will execute this request in task mode
 	volatile uint8_t busy : 1;  ///< Request in progress
 	uint32_t addr{0};			///< Address value
 	uint8_t addrLen{0};			///< Address bits, 0 - 32
@@ -126,7 +128,7 @@ struct Request {
 	Callback callback{nullptr}; ///< Completion routine
 	void* param{nullptr};		///< User parameter
 
-	Request() : async(false), busy(false)
+	Request() : async(false), task(false), busy(false)
 	{
 	}
 
@@ -140,6 +142,7 @@ struct Request {
 			;
 		}
 		busy = false;
+		task = false;
 	}
 
 	void setCommand(uint16_t command, uint8_t bitCount)

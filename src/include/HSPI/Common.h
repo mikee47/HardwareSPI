@@ -75,14 +75,8 @@ inline String toString(IoMode mode)
 using ByteOrder = uint8_t;
 using BitOrder = uint8_t;
 
-/** @brief How SPI hardware pins are connected
- *  @note
- * 		Normal: MISO = GPIO12, MOSI = GPIO13, SCLK = GPIO14
- * 			CS_AUTO: pin 15 HSPI CS managed by hardware
- * 			CS_MANUAL: CS managed by device at start/end of transaction
- *
- * 		Overlap: MISO = SD0, MOSI = SDD1, SCLK = CLK
- * 			CS = CS0-2, always managed by hardware
+/**
+ * @brief How SPI hardware pins are connected
  */
 enum class PinSet {
 	none,	///< Disabled

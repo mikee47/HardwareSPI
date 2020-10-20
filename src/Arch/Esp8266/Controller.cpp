@@ -491,6 +491,11 @@ void Controller::execute(Request& req)
 		updateConfig(*dev);
 	}
 
+	// For high clock speeds don't use transaction interrupts
+	if(dev->speed > 16000000U) {
+		req.task = true;
+	}
+
 	// Packet transfer already in progress?
 	ETS_SPI_INTR_DISABLE();
 	if(trans.busy) {
@@ -503,24 +508,37 @@ void Controller::execute(Request& req)
 	} else {
 		// Not currently running, so do this one now
 		trans.request = &req;
-		startRequest();
+		if(req.task) {
+			executeTask();
+		} else {
+			startRequest();
+		}
 	}
 
 	// Use interrupts for asynchronous mode
 	if(req.async) {
 		ETS_SPI_INTR_ENABLE();
 	} else {
-		// Otherwise block and poll
-#ifdef HSPI_ENABLE_STATS
-		CpuCycleTimer timer;
-#endif
-		while(req.busy) {
-			isr(this);
-		}
-#ifdef HSPI_ENABLE_STATS
-		stats.waitCycles += timer.elapsedTicks();
-#endif
+		executeTask();
 	}
+}
+
+void Controller::executeTask()
+{
+	ETS_SPI_INTR_DISABLE();
+
+	startRequest();
+
+	// Block and poll
+#ifdef HSPI_ENABLE_STATS
+	CpuCycleTimer timer;
+#endif
+	while(trans.request->busy) {
+		isr(this);
+	}
+#ifdef HSPI_ENABLE_STATS
+	stats.waitCycles += timer.elapsedTicks();
+#endif
 }
 
 void IRAM_ATTR Controller::startRequest()
@@ -824,7 +842,11 @@ void IRAM_ATTR Controller::transactionDone()
 		req.device->transferComplete(req);
 		// Start the next packet, if there is one
 		if(trans.request != nullptr) {
-			startRequest();
+			if(trans.request->task) {
+				System.queueCallback([](void* self) { static_cast<Controller*>(self)->executeTask(); }, this);
+			} else {
+				startRequest();
+			}
 		} else if(flags.spi0ClockChanged) {
 			// All transfers have completed, set SPI0 clock back to full speed
 			SET_PERI_REG_MASK(PERIPHS_IO_MUX_CONF_U, SPI0_CLK_EQU_SYS_CLK);
