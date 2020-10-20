@@ -50,9 +50,10 @@ void Controller::configChanged(Device& dev)
 	dev.config.dirty = true;
 }
 
-void Controller::setSpeed(Device& dev, uint32_t frequency)
+uint32_t Controller::setSpeed(Device& dev, uint32_t frequency)
 {
 	dev.config.reg.clock = frequency;
+	return frequency;
 }
 
 uint32_t Controller::getSpeed(Device& dev) const

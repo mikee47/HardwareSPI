@@ -109,42 +109,40 @@ uint32_t getClockFrequency(const spi_dev_t::clock_t clk)
 
 /** @brief Determine the best clock register value for a desired bus frequency
  *  @param frequency Desired SPI clock frequency in Hz
- *  @retval uint32_t opaque 32-bit register setting value
+ *  @param clockReg the appropriate clock register value
+ *  @retval uint32_t The actual frequency which will be used
  *  @note
  *  	Speed settings are pre-calculated to optimise switching between devices.
  *  	It is guaranteed that the frequency will not exceed the given target
- *  	This method must be called with the CPU set to the correct clock frequency
- *  	in use; if this changes then the calculation will be wrong.
  */
-spi_dev_t::clock_t getClockReg(uint32_t freq)
+uint32_t calculateClock(uint32_t frequency, spi_dev_t::clock_t& clockReg)
 {
-	if(freq >= APB_CLK_FREQ) {
-		return clkEquSys;
+	if(frequency >= APB_CLK_FREQ) {
+		clockReg = clkEquSys;
+		return APB_CLK_FREQ;
 	}
 
-	if(freq < getClockFrequency(clkMin)) {
+	if(frequency < getClockFrequency(clkMin)) {
 		// use minimum possible clock
-		return clkMin;
+		clockReg = clkMin;
+		return getClockFrequency(clkMin);
 	}
 
-	uint8_t calN = 1;
-
-	spi_dev_t::clock_t bestReg{};
-	int32_t bestFreq = 0;
+	clockReg.val = 0;
+	uint8_t calN{1};
+	uint32_t clockFreq{0};
 
 	// find the best match
 	while(calN <= 0x3F) { // 0x3F max for N
 
+		uint32_t calFreq{0};
 		spi_dev_t::clock_t reg{};
-		int32_t calFreq;
-		int32_t calPre;
-		int8_t calPreVari = -2;
-
 		reg.clkcnt_n = calN;
 
 		// Test different variants for prescale
+		int8_t calPreVari{-2};
 		while(calPreVari++ <= 1) {
-			calPre = (((APB_CLK_FREQ / (reg.clkcnt_n + 1)) / freq) - 1) + calPreVari;
+			int calPre = (((APB_CLK_FREQ / (reg.clkcnt_n + 1)) / frequency) - 1) + calPreVari;
 			if(calPre > 0x1FFF) {
 				reg.clkdiv_pre = 0x1FFF; // 8191
 			} else if(calPre <= 0) {
@@ -158,30 +156,30 @@ spi_dev_t::clock_t getClockReg(uint32_t freq)
 			// Test calculation
 			calFreq = getClockFrequency(reg);
 
-			if(calFreq == (int32_t)freq) {
+			if(calFreq == frequency) {
 				// accurate match use it!
-				bestReg = reg;
+				clockReg = reg;
 				break;
-			} else if(calFreq < (int32_t)freq) {
+			}
+
+			if(calFreq < frequency) {
 				// never go over the requested frequency
-				if(abs(int(freq - calFreq)) < abs(int(freq - bestFreq))) {
-					bestFreq = calFreq;
-					bestReg = reg;
+				if(abs(int(frequency - calFreq)) < abs(int(frequency - clockFreq))) {
+					clockFreq = calFreq;
+					clockReg = reg;
 				}
 			}
 		}
-		if(calFreq == (int32_t)freq) {
+
+		if(calFreq == frequency) {
 			// accurate match use it!
 			break;
 		}
+
 		calN++;
 	}
 
-	//	debug_i("[0x%08X][%d]\t EQU: %d\t Pre: %d\t N: %d\t H: %d\t L: %d\t - Real Frequency: %d\n", bestReg.val, freq,
-	//			bestReg.clk_equ_sysclk, bestReg.clkdiv_pre, bestReg.clkcnt_n, bestReg.clkcnt_h, bestReg.clkcnt_l,
-	//			getClockFrequency(bestReg));
-
-	return bestReg;
+	return clockFreq;
 }
 
 } // namespace
@@ -346,9 +344,12 @@ void Controller::configChanged(Device& dev)
 	dev.config.dirty = true;
 }
 
-void Controller::setSpeed(Device& dev, uint32_t frequency)
+uint32_t Controller::setSpeed(Device& dev, uint32_t frequency)
 {
-	dev.config.reg.clock = getClockReg(frequency).val;
+	spi_dev_t::clock_t reg;
+	frequency = calculateClock(frequency, reg);
+	dev.config.reg.clock = reg.val;
+	return frequency;
 }
 
 uint32_t Controller::getSpeed(Device& dev) const

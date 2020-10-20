@@ -71,7 +71,7 @@ public:
 	 */
 	void setSpeed(uint32_t frequency)
 	{
-		controller.setSpeed(*this, frequency);
+		speed = controller.setSpeed(*this, frequency);
 	}
 
 	uint32_t getSpeed()
@@ -162,6 +162,7 @@ private:
 	Controller::Config config{}; ///< Private config used by Controller
 	PinSet pinSet{PinSet::none};
 	uint8_t chipSelect{255};
+	uint32_t speed{0};
 	BitOrder bitOrder{MSBFIRST};
 	ClockMode clockMode{0};
 	IoMode ioMode{IoMode::SPI};

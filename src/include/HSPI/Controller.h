@@ -128,7 +128,13 @@ public:
 
 	void configChanged(Device& dev);
 
-	void setSpeed(Device& dev, uint32_t frequency);
+	/**
+	 * @brief Set the clock for a given frequency
+	 * @param dev
+	 * @param frequency The requested clock frequency in Hz
+	 * @retval uint32_t The actual clock frequency selected
+	 */
+	uint32_t setSpeed(Device& dev, uint32_t frequency);
 
 	uint32_t getSpeed(Device& dev) const;
 
