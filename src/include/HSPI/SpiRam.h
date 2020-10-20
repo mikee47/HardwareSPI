@@ -148,6 +148,20 @@ public:
 	}
 
 	/**
+	 * @brief Prepare a write request
+	 * @param request
+	 * @param address
+	 * @param data
+	 * @param len
+	 */
+	void prepareWrite(HSPI::Request& req, uint32_t address, const void* data, size_t len)
+	{
+		req.setCommand8(0x02); // Write
+		req.setAddress24(address);
+		req.out.set(data, len);
+	}
+
+	/**
 	 * @brief Write a block of data
 	 * @param address
 	 * @param data
@@ -157,10 +171,23 @@ public:
 	void write(uint32_t address, const void* data, size_t len)
 	{
 		Request req;
-		req.setCommand8(0x02); // Write
-		req.setAddress24(address);
-		req.out.set(data, len);
+		prepareWrite(req, address, data, len);
 		execute(req);
+	}
+
+	/**
+	 * @brief Read a block of data
+	 * @param req
+	 * @param address
+	 * @param data
+	 * @param len
+	 */
+	void prepareRead(HSPI::Request& req, uint32_t address, void* buffer, size_t len)
+	{
+		req.setCommand8(0x03); // Read
+		req.setAddress24(address);
+		req.dummyLen = 8 / getBitsPerClock();
+		req.in.set(buffer, len);
 	}
 
 	/**
@@ -173,15 +200,14 @@ public:
 	void read(uint32_t address, void* buffer, size_t len)
 	{
 		Request req;
-		req.setCommand8(0x03); // Read
-		req.setAddress24(address);
-		req.dummyLen = 8 / getBitsPerClock();
-		req.in.set(buffer, len);
+		prepareRead(req, address, buffer, len);
 		execute(req);
 	}
 
 private:
 	OpMode opMode{OpMode::Sequential};
+	HSPI::Request req1;
+	HSPI::Request req2;
 };
 
 } // namespace HSPI
