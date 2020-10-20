@@ -174,7 +174,7 @@ private:
 	 */
 	void transactionDone();
 
-	PinSet activePinSet{PinSet::None};
+	PinSet activePinSet{PinSet::none};
 	uint8_t overlapDevices{0};		 ///< Number of registered devices using overlap pins (SPI0)
 	uint8_t normalDevices{0};		 ///< Number of registered devices using HSPI pins (SPI1)
 	std::bitset<8> chipSelectsInUse; ///< Ensures each CS is used only once

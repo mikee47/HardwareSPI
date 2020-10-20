@@ -160,7 +160,7 @@ protected:
 private:
 	Controller& controller;
 	Controller::Config config{}; ///< Private config used by Controller
-	PinSet pinSet{PinSet::None};
+	PinSet pinSet{PinSet::none};
 	uint8_t chipSelect{255};
 	BitOrder bitOrder{MSBFIRST};
 	ClockMode clockMode{0};

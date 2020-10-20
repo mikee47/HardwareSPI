@@ -26,7 +26,7 @@ public:
 
 		setSpeed(40000000U);
 		setBitOrder(MSBFIRST);
-		setClockMode(ClockMode::Mode0);
+		setClockMode(ClockMode::mode0);
 
 		// Ensure device is in SPI mode
 		Device::setIoMode(IoMode::SQI);

@@ -41,7 +41,7 @@ bool Controller::startDevice(Device& dev, PinSet pinSet, uint8_t chipSelect)
 void Controller::stopDevice(Device& dev)
 {
 	FUNC("%p, %u, %u", &dev, dev.pinSet, dev.chipSelect);
-	dev.pinSet = PinSet::None;
+	dev.pinSet = PinSet::none;
 	dev.chipSelect = 255;
 }
 

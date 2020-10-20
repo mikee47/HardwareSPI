@@ -20,10 +20,10 @@ namespace HSPI
  * @brief SPI clock polarity (CPOL) and phase (CPHA)
  */
 enum class ClockMode : uint8_t {
-	Mode0 = 0x00, ///<  CPOL: 0  CPHA: 0
-	Mode1 = 0x01, ///<  CPOL: 0  CPHA: 1
-	Mode2 = 0x10, ///<  CPOL: 1  CPHA: 0
-	Mode3 = 0x11, ///<  CPOL: 1  CPHA: 1
+	mode0 = 0x00, ///<  CPOL: 0  CPHA: 0
+	mode1 = 0x01, ///<  CPOL: 0  CPHA: 1
+	mode2 = 0x10, ///<  CPOL: 1  CPHA: 0
+	mode3 = 0x11, ///<  CPOL: 1  CPHA: 1
 };
 
 /**
@@ -82,12 +82,12 @@ using BitOrder = uint8_t;
  * 			CS_MANUAL: CS managed by device at start/end of transaction
  *
  * 		Overlap: MISO = SD0, MOSI = SDD1, SCLK = CLK
- * 			CS = CS2, always managed by hardware
+ * 			CS = CS0-2, always managed by hardware
  */
 enum class PinSet {
-	None,	///< Disabled
-	Normal,  ///< Standard HSPI pins
-	Overlap, ///< Overlapped with SPI 0
+	none,	///< Disabled
+	normal,  ///< Standard HSPI pins
+	overlap, ///< Overlapped with SPI 0
 };
 
 // Note: These are faster than __builtin_bswapNN functions
@@ -95,6 +95,11 @@ enum class PinSet {
 inline uint16_t bswap16(uint16_t value)
 {
 	return (value >> 8) | (value << 8);
+}
+
+inline uint32_t bswap24(uint32_t value)
+{
+	return ((value >> 16) & 0x0000ff) | (value & 0x00ff00) | ((value << 16) & 0xff0000);
 }
 
 inline uint32_t bswap32(uint32_t value)
