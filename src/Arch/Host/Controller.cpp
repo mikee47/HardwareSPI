@@ -13,6 +13,7 @@
 #include <HSPI/Controller.h>
 #include <HSPI/Device.h>
 #include <debug_progmem.h>
+#include <Timer.h>
 
 namespace HSPI
 {
@@ -64,6 +65,23 @@ uint32_t Controller::getSpeed(Device& dev) const
 void Controller::execute(Request& req)
 {
 	FUNC("%p", &req);
+
+	assert(!req.busy);
+	assert(req.device != nullptr);
+
+	debug_i("req .out = %p, %u; .in = %p, %u; .callback = %p, %p; async = %u", req.out.ptr, req.out.length, req.in.ptr,
+			req.in.length, req.callback, req.param, req.async);
+
+	if(req.async && req.callback != nullptr) {
+		req.busy = true;
+		auto timer = new AutoDeleteTimer;
+		timer
+			->initializeMs<10>([&req]() {
+				req.busy = false;
+				req.callback(req);
+			})
+			.startOnce();
+	}
 }
 
 } // namespace HSPI
