@@ -194,6 +194,7 @@ uint32_t calculateClock(uint32_t frequency, spi_dev_t::clock_t& clockReg)
 
 			if(calFreq == frequency) {
 				// accurate match use it!
+				clockFreq = calFreq;
 				clockReg = reg;
 				break;
 			}
@@ -224,17 +225,11 @@ void Controller::begin()
 {
 	// Pinset and chip selects are device-dependent and not initialised here - see startPacket()
 
-	// Configure interrupts
-
-	//	debug_i("SPI0.slave = 0x%08x", SPI0.slave.val);
 	SPI0.slave.val &= ~0x000003FF; // Don't want interrupts from SPI0
-
 	SPI1.slave.val &= ~0x000003FF; // Clear all interrupt sources
 	SPI1.slave.trans_inten = 1;	// Interrupt on command completion
-
 	SPI1.slave.slave_mode = false;
 	SPI1.slave.sync_reset = true;
-
 	SPI1.ctrl1.val = 0;
 
 	TESTPIN_SETUP();
@@ -524,7 +519,7 @@ void Controller::execute(Request& req)
 	}
 
 	// For high clock speeds don't use transaction interrupts
-	if(dev->speed > 16000000U) {
+	if(req.async && dev->speed >= 16000000U) {
 		req.task = true;
 	}
 
@@ -538,15 +533,21 @@ void Controller::execute(Request& req)
 		}
 		pkt->next = &req;
 		if(req.async) {
-			ETS_SPI_INTR_ENABLE();
+			if(!flags.taskQueued) {
+				ETS_SPI_INTR_ENABLE();
+			}
 			return;
 		}
 	} else {
 		// Not currently running, so do this one now
 		trans.request = &req;
 		startRequest();
-		if(req.async && !req.task) {
-			ETS_SPI_INTR_ENABLE();
+		if(req.async) {
+			if(req.task) {
+				queueTask();
+			} else {
+				ETS_SPI_INTR_ENABLE();
+			}
 			return;
 		}
 	}
@@ -563,25 +564,51 @@ void Controller::execute(Request& req)
 #endif
 }
 
+void IRAM_ATTR Controller::queueTask()
+{
+	if(!flags.taskQueued) {
+		System.queueCallback([](void* param) { static_cast<Controller*>(param)->executeTask(); }, this);
+		flags.taskQueued = true;
+#ifdef HSPI_ENABLE_STATS
+		++stats.tasksQueued;
+#endif
+	}
+}
+
 /*
- * Called from task queue to block on high-speed request processing.
+ * Called from task context to execute request in blocking mode.
+ * This is appropriate when transaction time is very short due to relative ISR overhead.
  */
 void Controller::executeTask()
 {
+	flags.taskQueued = false;
+
+	auto req = trans.request;
+	if(req == nullptr) {
+		// No current transaction - blocking call to execute() will have pre-empted this task
+#ifdef HSPI_ENABLE_STATS
+		++stats.tasksCancelled;
+#endif
+		return;
+	}
+
 	// Block and poll, but only on this request
 #ifdef HSPI_ENABLE_STATS
 	CpuCycleTimer timer;
 #endif
-	auto req = trans.request;
 	while(req == trans.request) {
 		isr(this);
 	}
-	assert(!trans.request->busy);
+	assert(!req->busy);
 #ifdef HSPI_ENABLE_STATS
 	stats.waitCycles += timer.elapsedTicks();
 #endif
 }
 
+/*
+ * Start transfer of a new request (trans.request)
+ * May be called from interrupt context at completion of previous request
+ */
 void IRAM_ATTR Controller::startRequest()
 {
 	TESTPIN1_HIGH();
@@ -837,6 +864,9 @@ void IRAM_ATTR Controller::nextTransactionSDQI()
 #endif
 }
 
+/*
+ * Interrupt on transaction complete
+ */
 void IRAM_ATTR Controller::isr(Controller* spi)
 {
 	if(READ_PERI_REG(DPORT_SPI_INT_STATUS_REG) & DPORT_SPI_INT_STATUS_SPI1) {
@@ -845,6 +875,10 @@ void IRAM_ATTR Controller::isr(Controller* spi)
 	}
 }
 
+/*
+ * Read incoming data, if there is any, and start next transac/tion.
+ * Called from interrupt context at completion of transaction.
+ */
 void IRAM_ATTR Controller::transactionDone()
 {
 	TESTPIN2_LOW();
@@ -871,17 +905,21 @@ void IRAM_ATTR Controller::transactionDone()
 		TESTPIN1_LOW();
 		trans.busy = false;
 		req.busy = false;
+#ifdef HSPI_ENABLE_STATS
+		++stats.requestCount;
+#endif
 		// Note next packet in chain before invoking callback
 		trans.request = req.next;
 		req.next = nullptr;
 		req.device->transferComplete(req);
 		// Start the next packet, if there is one
 		if(trans.request != nullptr) {
-			startRequest();
 			if(trans.request->task) {
 				ETS_SPI_INTR_DISABLE();
-				System.queueCallback([](void* param) { static_cast<Controller*>(param)->executeTask(); }, this);
+				startRequest();
+				queueTask();
 			} else {
+				startRequest();
 				ETS_SPI_INTR_ENABLE();
 			}
 		} else if(flags.spi0ClockChanged) {

@@ -137,13 +137,19 @@ public:
 
 #ifdef HSPI_ENABLE_STATS
 	struct Stats {
-		uint32_t waitCycles;
+		uint32_t requestCount;
 		uint32_t transCount;
+		uint32_t waitCycles;
+		uint32_t tasksQueued;
+		uint32_t tasksCancelled;
 
 		void clear() volatile
 		{
-			waitCycles = 0;
+			requestCount = 0;
 			transCount = 0;
+			waitCycles = 0;
+			tasksQueued = 0;
+			tasksCancelled = 0;
 		}
 	};
 	static volatile Stats stats;
@@ -157,29 +163,12 @@ protected:
 private:
 	static void updateConfig(Device& dev);
 
-	/*
-	 * Called from task context, executes request in blocking mode
-	 */
+	void queueTask();
 	void executeTask();
-
-	/*
-	 * Start transfer of a new request (trans.request)
-	 * May be called from interrupt context at completion of previous request
-	 */
 	void startRequest();
-
 	void nextTransaction();
 	void nextTransactionSDQI();
-
-	/**
-	 * @brief Interrupt on transaction complete
-	 */
 	static void isr(Controller* spi);
-
-	/**
-	 * @brief Read incoming data, if there is any, and start next transaction
-	 * @note Called from interrupt context at completion of transaction
-	 */
 	void transactionDone();
 
 	PinSet activePinSet{PinSet::none};
@@ -188,6 +177,7 @@ private:
 	std::bitset<8> chipSelectsInUse; ///< Ensures each CS is used only once
 	struct Flags {
 		bool spi0ClockChanged : 1; ///< SPI0 clock MUX setting was changed for a transaction
+		bool taskQueued : 1;
 	};
 	Flags flags{};
 
