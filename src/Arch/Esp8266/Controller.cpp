@@ -98,6 +98,42 @@ const spi_dev_t::clock_t clkDiv2{{
 	.clk_equ_sysclk{0},
 }};
 
+/**
+ * @brief Enable or disable overlap of SPI1 controller onto SPI0 pins
+ * @param enable
+ */
+void overlapEnable(bool enable)
+{
+	if(enable) {
+		SET_PERI_REG_MASK(HOST_INF_SEL, PERI_IO_CSPI_OVERLAP);
+		// Prioritise SPI over HSPI transactions
+		SPI0.ext3.int_hold_ena = 1;
+		SPI1.ext3.int_hold_ena = 3;
+	} else {
+		CLEAR_PERI_REG_MASK(HOST_INF_SEL, PERI_IO_CSPI_OVERLAP);
+		// De-prioritise SPI vs HSPI
+		SPI0.ext3.int_hold_ena = 0;
+		SPI1.ext3.int_hold_ena = 0;
+	}
+}
+
+/*
+ * @brief Set function of SPI1 pins to SPI or GPIO
+ * @param enable
+ */
+void enableSpi0Pins(bool enable)
+{
+	if(enable) {
+		PIN_FUNC_SELECT(PERIPHS_GPIO_MUX_REG(PIN_HSPI_MISO), FUNC_HSPIQ_MISO);
+		PIN_FUNC_SELECT(PERIPHS_GPIO_MUX_REG(PIN_HSPI_MOSI), FUNC_HSPID_MOSI);
+		PIN_FUNC_SELECT(PERIPHS_GPIO_MUX_REG(PIN_HSPI_CLK), FUNC_HSPI_CLK);
+	} else {
+		PIN_FUNC_SELECT(PERIPHS_GPIO_MUX_REG(PIN_HSPI_MISO), FUNC_GPIO12);
+		PIN_FUNC_SELECT(PERIPHS_GPIO_MUX_REG(PIN_HSPI_MOSI), FUNC_GPIO13);
+		PIN_FUNC_SELECT(PERIPHS_GPIO_MUX_REG(PIN_HSPI_CLK), FUNC_GPIO14);
+	}
+}
+
 /** @brief Calculate SPI clock Frequency based on the register value
  * 	@param regVal
  * 	@retval uint32_t clock frequency in Hz
@@ -255,9 +291,7 @@ bool Controller::startDevice(Device& dev, PinSet pinSet, uint8_t chipSelect)
 
 	case PinSet::normal:
 		if(normalDevices++ == 0) {
-			PIN_FUNC_SELECT(PERIPHS_GPIO_MUX_REG(PIN_HSPI_MISO), FUNC_HSPIQ_MISO);
-			PIN_FUNC_SELECT(PERIPHS_GPIO_MUX_REG(PIN_HSPI_MOSI), FUNC_HSPID_MOSI);
-			PIN_FUNC_SELECT(PERIPHS_GPIO_MUX_REG(PIN_HSPI_CLK), FUNC_HSPI_CLK);
+			enableSpi0Pins(true);
 		}
 		break;
 
@@ -294,16 +328,14 @@ void Controller::stopDevice(Device& dev)
 	case PinSet::overlap:
 		assert(overlapDevices > 0);
 		--overlapDevices;
+		overlapEnable(false);
 		break;
 
 	case PinSet::normal:
 		assert(normalDevices > 0);
 		--normalDevices;
 		if(normalDevices == 0) {
-			// Set any configured pins to GPIO
-			PIN_FUNC_SELECT(PERIPHS_GPIO_MUX_REG(PIN_HSPI_MISO), FUNC_GPIO12);
-			PIN_FUNC_SELECT(PERIPHS_GPIO_MUX_REG(PIN_HSPI_MOSI), FUNC_GPIO13);
-			PIN_FUNC_SELECT(PERIPHS_GPIO_MUX_REG(PIN_HSPI_CLK), FUNC_GPIO14);
+			enableSpi0Pins(false);
 		}
 		break;
 
@@ -560,18 +592,12 @@ void IRAM_ATTR Controller::startRequest()
 	auto pinSet = dev.pinSet;
 	if(pinSet != activePinSet) {
 		if(activePinSet == PinSet::overlap) {
-			// Disable HSPI overlap
-			CLEAR_PERI_REG_MASK(HOST_INF_SEL, PERI_IO_CSPI_OVERLAP);
-			// De-prioritise SPI vs HSPI
-			SPI0.ext3.int_hold_ena = 0;
-			SPI1.ext3.int_hold_ena = 0;
+			overlapEnable(false);
 		}
 
+		// New pin set
 		if(pinSet == PinSet::overlap) {
-			SET_PERI_REG_MASK(HOST_INF_SEL, PERI_IO_CSPI_OVERLAP);
-			// Prioritise SPI over HSPI transactions
-			SPI0.ext3.int_hold_ena = 1;
-			SPI1.ext3.int_hold_ena = 3;
+			overlapEnable(true);
 		}
 
 		activePinSet = pinSet;
