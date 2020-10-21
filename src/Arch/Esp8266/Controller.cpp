@@ -62,6 +62,7 @@ volatile Controller::Stats Controller::stats;
 // Enable the given pin as a chip select
 #define CS_ENABLE(cspin, func)                                                                                         \
 	{                                                                                                                  \
+		PIN_PULLUP_EN(PERIPHS_GPIO_MUX_REG(cspin));                                                                    \
 		PIN_FUNC_SELECT(PERIPHS_GPIO_MUX_REG(cspin), func);                                                            \
 	}
 
@@ -124,8 +125,11 @@ void overlapEnable(bool enable)
 void enableSpi1Pins(bool enable)
 {
 	if(enable) {
+		PIN_PULLUP_EN(PERIPHS_GPIO_MUX_REG(PIN_HSPI_MISO));
 		PIN_FUNC_SELECT(PERIPHS_GPIO_MUX_REG(PIN_HSPI_MISO), FUNC_HSPIQ_MISO);
+		PIN_PULLUP_EN(PERIPHS_GPIO_MUX_REG(PIN_HSPI_MOSI));
 		PIN_FUNC_SELECT(PERIPHS_GPIO_MUX_REG(PIN_HSPI_MOSI), FUNC_HSPID_MOSI);
+		PIN_PULLUP_EN(PERIPHS_GPIO_MUX_REG(PIN_HSPI_CLK));
 		PIN_FUNC_SELECT(PERIPHS_GPIO_MUX_REG(PIN_HSPI_CLK), FUNC_HSPI_CLK);
 	} else {
 		PIN_FUNC_SELECT(PERIPHS_GPIO_MUX_REG(PIN_HSPI_MISO), FUNC_GPIO12);
