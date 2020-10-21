@@ -154,6 +154,9 @@ uint32_t getClockFrequency(const spi_dev_t::clock_t clk)
  *  @note
  *  	Speed settings are pre-calculated to optimise switching between devices.
  *  	It is guaranteed that the frequency will not exceed the given target
+ *
+ *  @note Original source
+ *	https://github.com/esp8266/Arduino/blob/3cc12b1e08968aa6f35395d6a3bb265e197e91d5/libraries/SPI/SPI.cpp#L196
  */
 uint32_t calculateClock(uint32_t frequency, spi_dev_t::clock_t& clockReg)
 {
@@ -168,13 +171,11 @@ uint32_t calculateClock(uint32_t frequency, spi_dev_t::clock_t& clockReg)
 		return getClockFrequency(clkMin);
 	}
 
+	// find the best match
 	clockReg.val = 0;
 	uint8_t calN{1};
 	uint32_t clockFreq{0};
-
-	// find the best match
-	while(calN <= 0x3F) { // 0x3F max for N
-
+	while(calN <= 0x3F) {
 		uint32_t calFreq{0};
 		spi_dev_t::clock_t reg{};
 		reg.clkcnt_n = calN;
@@ -190,8 +191,6 @@ uint32_t calculateClock(uint32_t frequency, spi_dev_t::clock_t& clockReg)
 			} else {
 				reg.clkdiv_pre = calPre;
 			}
-
-			reg.clkcnt_l = ((reg.clkcnt_n + 1) / 2);
 
 			// Test calculation
 			calFreq = getClockFrequency(reg);
@@ -219,6 +218,11 @@ uint32_t calculateClock(uint32_t frequency, spi_dev_t::clock_t& clockReg)
 
 		calN++;
 	}
+
+	// In the master mode clkcnt_h = floor((clkcnt_n+1)/2-1). In the slave mode it must be 0
+	clockReg.clkcnt_h = ((clockReg.clkcnt_n + 1) / 2) - 1;
+	// In the master mode clkcnt_l = clkcnt_n. In the slave mode it must be 0
+	clockReg.clkcnt_l = clockReg.clkcnt_n;
 
 	return clockFreq;
 }
