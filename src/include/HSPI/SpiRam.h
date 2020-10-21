@@ -43,7 +43,6 @@ public:
 			return false;
 		}
 
-		setSpeed(40000000U);
 		setBitOrder(MSBFIRST);
 		setClockMode(ClockMode::mode0);
 
@@ -147,19 +146,20 @@ public:
 		return opMode;
 	}
 
-	void prepareWrite(HSPI::Request& req, uint32_t address, const void* data, size_t len) override
+	void prepareWrite(HSPI::Request& req, uint32_t address) override
 	{
+		req.prepare();
 		req.setCommand8(0x02); // Write
 		req.setAddress24(address);
-		req.out.set(data, len);
+		req.dummyLen = 0;
 	}
 
-	void prepareRead(HSPI::Request& req, uint32_t address, void* buffer, size_t len) override
+	void prepareRead(HSPI::Request& req, uint32_t address) override
 	{
+		req.prepare();
 		req.setCommand8(0x03); // Read
 		req.setAddress24(address);
 		req.dummyLen = 8 / getBitsPerClock();
-		req.in.set(buffer, len);
 	}
 
 private:
