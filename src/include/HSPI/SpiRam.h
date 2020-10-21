@@ -12,7 +12,7 @@
 
 #pragma once
 
-#include "Device.h"
+#include "MemoryDevice.h"
 
 namespace HSPI
 {
@@ -20,10 +20,10 @@ namespace HSPI
  * @brief IS62/65WVS2568GALL fast serial RAM
  * @ingroup hw_spi
  */
-class SpiRam : public Device
+class SpiRam : public MemoryDevice
 {
 public:
-	using Device::Device;
+	using MemoryDevice::MemoryDevice;
 
 	/**
 	 * @brief Memory operating mode determines how read/write operations are performed
@@ -147,61 +147,19 @@ public:
 		return opMode;
 	}
 
-	/**
-	 * @brief Prepare a write request
-	 * @param request
-	 * @param address
-	 * @param data
-	 * @param len
-	 */
-	void prepareWrite(HSPI::Request& req, uint32_t address, const void* data, size_t len)
+	void prepareWrite(HSPI::Request& req, uint32_t address, const void* data, size_t len) override
 	{
 		req.setCommand8(0x02); // Write
 		req.setAddress24(address);
 		req.out.set(data, len);
 	}
 
-	/**
-	 * @brief Write a block of data
-	 * @param address
-	 * @param data
-	 * @param len
-	 * @note Limited by current operating mode
-	 */
-	void write(uint32_t address, const void* data, size_t len)
-	{
-		Request req;
-		prepareWrite(req, address, data, len);
-		execute(req);
-	}
-
-	/**
-	 * @brief Read a block of data
-	 * @param req
-	 * @param address
-	 * @param data
-	 * @param len
-	 */
-	void prepareRead(HSPI::Request& req, uint32_t address, void* buffer, size_t len)
+	void prepareRead(HSPI::Request& req, uint32_t address, void* buffer, size_t len) override
 	{
 		req.setCommand8(0x03); // Read
 		req.setAddress24(address);
 		req.dummyLen = 8 / getBitsPerClock();
 		req.in.set(buffer, len);
-	}
-
-	/**
-	 * @brief Read a block of data
-	 * @param address
-	 * @param data
-	 * @param len
-	 * @note Limited by current operating mode
-	 */
-	void read(uint32_t address, void* buffer, size_t len)
-	{
-		Request req;
-		prepareRead(req, address, buffer, len);
-		execute(req);
 	}
 
 private:

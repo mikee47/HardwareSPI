@@ -20,9 +20,3 @@ Manual CS control
    Callback required at begin and end of each transaction.
    Provide an additional setting for the maximum transaction length so that requests can be split
    as usual or sent as a single transaction.
-
-Streaming
-   Provide streaming support using a wrapper class.
-   This would be used, for example, when transferring content from a SPIFFS file stream
-   to an SPI memory device asynchronously.
-

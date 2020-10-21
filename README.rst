@@ -170,6 +170,18 @@ and the SDI/SQI mode setting applies to all phases. This needs to be implemented
 necesssary and performance suffers considerably.
 
 
+Streaming
+---------
+
+The :cpp:class:`HSPI::StreamAdapter` provides support for streaming of data to/from memory devices.
+
+This would be used, for example, to transfer content to or from a :cpp:class:`FileStream`
+or :cpp:class:`FlashMemoryStream` to SPI RAM asynchronously.
+
+Supported devices must inherit from :cpp:class:`HSPI::MemoryDevice`.
+
+
+
 API
 ---
 
@@ -186,9 +198,15 @@ API
 .. doxygenclass:: HSPI::Device
    :members:
 
+.. doxygenclass:: HSPI::MemoryDevice
+   :members:
+
 .. doxygenclass:: HSPI::SpiRam
    :members:
 
 .. doxygenclass:: HSPI::Controller
+   :members:
+
+.. doxygenclass:: HSPI::StreamAdapter
    :members:
 
