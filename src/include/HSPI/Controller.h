@@ -186,7 +186,7 @@ private:
 	// State of the current transaction in progress
 	struct Transaction {
 		Request* request;   ///< The current request being executed
-		uint16_t addr;		///< Address for next transfer
+		uint32_t addr;		///< Address for next transfer
 		uint16_t outOffset; ///< Where to read data for next outgoing transfer
 		uint16_t inOffset;  ///< Where to write incoming data from current transfer
 		uint8_t inlen;		///< Incoming data for current transfer

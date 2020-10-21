@@ -121,7 +121,7 @@ void overlapEnable(bool enable)
  * @brief Set function of SPI1 pins to SPI or GPIO
  * @param enable
  */
-void enableSpi0Pins(bool enable)
+void enableSpi1Pins(bool enable)
 {
 	if(enable) {
 		PIN_FUNC_SELECT(PERIPHS_GPIO_MUX_REG(PIN_HSPI_MISO), FUNC_HSPIQ_MISO);
@@ -231,6 +231,17 @@ void Controller::begin()
 	SPI1.slave.slave_mode = false;
 	SPI1.slave.sync_reset = true;
 	SPI1.ctrl1.val = 0;
+	SPI1.wr_status = 0; // TODO: Upper portion of 64-bit address
+
+	// From ESP32 code: 'we do need at least one clock of hold time in most cases'
+	spi_dev_t::ctrl2_t ctrl2{};
+	//			ctrl2.miso_delay_mode = 3;
+	ctrl2.miso_delay_num = 1;
+	//			ctrl2.mosi_delay_mode = 3;
+	//			ctrl2.mosi_delay_num = 4;
+	//			ctrl2.cs_delay_mode = 1;
+	//			ctrl2.cs_delay_num = 4;
+	SPI1.ctrl2.val = ctrl2.val;
 
 	TESTPIN_SETUP();
 
@@ -272,21 +283,13 @@ bool Controller::startDevice(Device& dev, PinSet pinSet, uint8_t chipSelect)
 	switch(pinSet) {
 	case PinSet::overlap:
 		if(overlapDevices++ == 0) {
-			// From ESP32 code: 'we do need at least one clock of hold time in most cases'
-			spi_dev_t::ctrl2_t ctrl2{};
-			//			ctrl2.miso_delay_mode = 3;
-			//			ctrl2.miso_delay_num = 4;
-			//			ctrl2.mosi_delay_mode = 3;
-			//			ctrl2.mosi_delay_num = 4;
-			//			ctrl2.cs_delay_mode = 1;
-			//			ctrl2.cs_delay_num = 4;
-			SPI1.ctrl2.val = ctrl2.val;
+			//
 		}
 		break;
 
 	case PinSet::normal:
 		if(normalDevices++ == 0) {
-			enableSpi0Pins(true);
+			enableSpi1Pins(true);
 		}
 		break;
 
@@ -330,7 +333,7 @@ void Controller::stopDevice(Device& dev)
 		assert(normalDevices > 0);
 		--normalDevices;
 		if(normalDevices == 0) {
-			enableSpi0Pins(false);
+			enableSpi1Pins(false);
 		}
 		break;
 
@@ -520,7 +523,7 @@ void Controller::execute(Request& req)
 
 	// For high clock speeds don't use transaction interrupts
 	if(req.async && dev->speed >= 16000000U) {
-		req.task = true;
+		//		req.task = true;
 	}
 
 	// Packet transfer already in progress?
@@ -552,7 +555,7 @@ void Controller::execute(Request& req)
 		}
 	}
 
-	// Otherwise block and poll
+	// Block and poll
 #ifdef HSPI_ENABLE_STATS
 	CpuCycleTimer timer;
 #endif
@@ -668,7 +671,6 @@ void IRAM_ATTR Controller::startRequest()
 	if(trans.ioMode == IoMode::SDI || trans.ioMode == IoMode::SQI) {
 		// Setup command bits
 		if(req.cmdLen == 16) {
-			auto cmd = req.cmd;
 			if(trans.bitOrder == MSBFIRST) {
 				trans.cmd[0] = (req.cmd >> 8);
 				trans.cmd[1] = req.cmd;
@@ -869,9 +871,14 @@ void IRAM_ATTR Controller::nextTransactionSDQI()
  */
 void IRAM_ATTR Controller::isr(Controller* spi)
 {
-	if(READ_PERI_REG(DPORT_SPI_INT_STATUS_REG) & DPORT_SPI_INT_STATUS_SPI1) {
+	auto status = READ_PERI_REG(DPORT_SPI_INT_STATUS_REG);
+	if(status & DPORT_SPI_INT_STATUS_SPI1) {
 		SPI1.slave.trans_done = 0;
 		spi->transactionDone();
+	}
+
+	if(status & DPORT_SPI_INT_STATUS_SPI0) {
+		SPI0.slave.val &= 0x1f;
 	}
 }
 
