@@ -9,10 +9,11 @@ Problem statement
 The ESP8266 has limited I/O and the most useful way to expand it is using serial devices. There are several types available:
 
 I2C
-   Can be fast-ish but more limited than SPI, however slave devices generally cheaper, more widely available and simpler to interface as they only require 2 pins. There does not appear to be actual hardware support though, so very inefficient.
+   Can be fast-ish but more limited than SPI, however slave devices generally cheaper, more widely available and simpler to interface as they only require 2 pins.
+   The ESP8266 does have hardware support however, so requires a bit-banging solution. Inefficient.
 
 I2S
-   Designed for audio devices. Apparently the FIFO size is 1Kbyte.
+   Designed for streaming audio devices but has other uses. See :component-esp8266:`driver`.
 
 RS232
    Tied in with RS485, Modbus, DMX512, etc. Well-supported with asynchronous driver.
@@ -32,17 +33,26 @@ The purpose of this driver is to provide a consistent interface which makes bett
 -  Multiple concurrent devices are supported, limited only by available chip selects and physical constraints such
    as wire length, bus speeds.
 -  2 and 4-bit modes are supported via overlap pins.
--  A :cpp:class:`Request` object supports transfers of up to 64K. The controller splits these into smaller transactions as required.
--  Asynchronous execution supported so application does not block during SPI transfer.
+-  A :cpp:class:`HSPI::Request` object supports transfers of up to 64K. The controller splits these into smaller transactions as required.
+-  Asynchronous execution so application does not block during SPI transfer.
    Application may provide a per-request callback to be notified when request has completed.
--  Blocking requests are supported which may be more appropriate for high-speed devices.
+-  Blocking requests are also supported.
+-  Support for moving data between Sming :doc:`/framework/core/data/streams/index` and SPI memory devices
+   using the :cpp:class:`HSPI::StreamAdapter`.
+
 
 SPI system expansion
 ~~~~~~~~~~~~~~~~~~~~
 
+A primary use-case for this driver is to provide additional resources for the ESP8266 using SPI devices such as:
+
 -  MC23S017 SPI bus expander. Operates at 10MHz (regular SPI) and provides 16 additional I/O with interrupt capability.
--  High-speed shift registers
--  SPI display devices, e.g. Bridgetek FT813 EVE, which supports dual/quad modes and clocks up to 30MHz.
+-  High-speed shift registers. These can be wired directly to SPI busses to expand GPIO capability.
+-  Epson S1D13781 display controller.  See :library:`TFT_S1D13781`.
+   Evaluation boards are inexpensive and is a useful way to evaluate display modules with TFT interfaces.
+   The `Newhaven NHD-5.0-800480TF-ATXL#-CTP <https://www.newhavendisplay.com/nhd50800480tfatxlctp-p-6062.html>`__
+   was used during development of this driver.
+-  Bridgetek FT813 EVE TFT display controller. This supports dual/quad modes and clocks up to 30MHz.
 -  NRF24L01 RF transceiver. Rated bus speed is 8MHz but it seems to work fine at 40MHz.
 -  Serial memory devices. The library contains a driver for the IS62/65WVS2568GALL fast serial RAM, which clocks up to 45MHz and
    supports SDI/SQI modes.
