@@ -8,8 +8,8 @@
 // For testing, we'll be toggling a pin
 #define TESTPIN_SETUP()                                                                                                \
 	{                                                                                                                  \
-		pinMode(HSPI_TESTPIN1, OUTPUT);                                                                                 \
-		pinMode(HSPI_TESTPIN2, OUTPUT);                                                                                 \
+		pinMode(HSPI_TESTPIN1, OUTPUT);                                                                                \
+		pinMode(HSPI_TESTPIN2, OUTPUT);                                                                                \
 		TESTPIN1_LOW();                                                                                                \
 		TESTPIN2_LOW();                                                                                                \
 	}

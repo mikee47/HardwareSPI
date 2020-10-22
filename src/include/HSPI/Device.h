@@ -148,6 +148,8 @@ public:
 		controller.execute(request);
 	}
 
+	Controller& controller;
+
 protected:
 	friend Controller;
 
@@ -159,7 +161,6 @@ protected:
 	}
 
 private:
-	Controller& controller;
 	Controller::Config config{}; ///< Private config used by Controller
 	PinSet pinSet{PinSet::none};
 	uint8_t chipSelect{255};
