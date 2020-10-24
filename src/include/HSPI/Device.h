@@ -57,6 +57,15 @@ public:
 		end();
 	}
 
+	/**
+	 * @brief Determine if the device is initialised
+	 * @retval bool
+	 */
+	bool isReady() const
+	{
+		return pinSet != PinSet::none;
+	}
+
 	PinSet getPinSet() const
 	{
 		return pinSet;
