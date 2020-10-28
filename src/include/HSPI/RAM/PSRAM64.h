@@ -34,7 +34,7 @@ public:
 
 	IoModes getSupportedIoModes() const override
 	{
-		return IoModes(IoMode::SPIHD | IoMode::QIO);
+		return IoModes(IoMode::SPIHD | IoMode::QIO | IoMode::SQI);
 	}
 
 	/**
@@ -46,12 +46,22 @@ public:
 			return false;
 		}
 
-		// Ensure device is in SPI mode
-		MemoryDevice::setIoMode(IoMode::QIO);
+		setBitOrder(MSBFIRST);
+		setClockMode(ClockMode::mode0);
+
+		// Exit QUAD mode
 		Request req;
-		req.out.set8(0xF5);
+		MemoryDevice::setIoMode(IoMode::SQI);
+		req.setCommand8(0xF5);
 		execute(req);
+
 		MemoryDevice::setIoMode(IoMode::SPIHD);
+
+		// Issue RESET
+		req.setCommand8(0x66);
+		execute(req);
+		req.setCommand8(0x99);
+		execute(req);
 
 		readId();
 
@@ -93,13 +103,12 @@ public:
 		}
 
 		Request req;
-		if(oldMode == IoMode::QIO) {
-			req.out.set8(0xF5); // Exit Quad Mode
+		if(oldMode == IoMode::SQI) {
+			req.setCommand8(0xF5); // Exit Quad Mode
 			execute(req);
-		}
-
-		if(mode == IoMode::QIO) {
-			req.out.set8(0x35); // Enter Quad Mode
+		} else if(mode == IoMode::SQI) {
+			MemoryDevice::setIoMode(IoMode::SPIHD);
+			req.setCommand8(0x35); // Enter Quad Mode
 			execute(req);
 		}
 
@@ -108,15 +117,16 @@ public:
 
 	void prepareWrite(HSPI::Request& req, uint32_t address) override
 	{
+		bool quad = (getIoMode() != IoMode::SPIHD);
 		req.prepare();
-		req.setCommand8(getIoMode() == IoMode::QIO ? 0x38 : 0x02);
+		req.setCommand8(quad ? 0x38 : 0x02);
 		req.setAddress24(address);
 		req.dummyLen = 0;
 	}
 
 	void prepareRead(HSPI::Request& req, uint32_t address) override
 	{
-		bool quad = (getIoMode() == IoMode::QIO);
+		bool quad = (getIoMode() != IoMode::SPIHD);
 		req.prepare();
 		req.setCommand8(quad ? 0xEB : 0x0B);
 		req.setAddress24(address);
