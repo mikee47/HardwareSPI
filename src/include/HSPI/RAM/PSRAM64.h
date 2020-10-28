@@ -50,11 +50,10 @@ public:
 		setClockMode(ClockMode::mode0);
 
 		// Exit QUAD mode
-		Request req;
 		MemoryDevice::setIoMode(IoMode::SQI);
+		Request req;
 		req.setCommand8(0xF5);
 		execute(req);
-
 		MemoryDevice::setIoMode(IoMode::SPIHD);
 
 		// Issue RESET
@@ -107,7 +106,6 @@ public:
 			req.setCommand8(0xF5); // Exit Quad Mode
 			execute(req);
 		} else if(mode == IoMode::SQI) {
-			MemoryDevice::setIoMode(IoMode::SPIHD);
 			req.setCommand8(0x35); // Enter Quad Mode
 			execute(req);
 		}

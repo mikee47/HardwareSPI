@@ -167,7 +167,6 @@ private:
 	void executeTask();
 	void startRequest();
 	void nextTransaction();
-	void nextTransactionSDQI();
 	static void isr(Controller* spi);
 	void transactionDone();
 
@@ -194,8 +193,8 @@ private:
 		// Flags
 		uint8_t bitOrder : 1;
 		volatile uint8_t busy : 1;
-		// Used in SDI/SQI modes
-		uint8_t cmd[2];
+		uint8_t addrShift; ///< How many bits to shift address left
+		uint32_t addrCmdMask;  ///< In SDI/SQI modes this is combined with address
 	};
 	Transaction trans{};
 };

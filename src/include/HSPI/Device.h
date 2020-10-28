@@ -24,7 +24,6 @@
 #pragma once
 
 #include "Controller.h"
-#include <WConstants.h>
 
 namespace HSPI
 {
