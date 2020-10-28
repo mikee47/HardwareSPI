@@ -4,7 +4,7 @@
  * http://github.com/anakod/Sming
  * All files of the Sming Core are provided under the LGPL v3 license.
  *
- * SpiRam.h
+ * IS62-65.h
  *
  * @author: October 2020 - mikee47 <mike@sillyhouse.net>
  *
@@ -12,15 +12,17 @@
 
 #pragma once
 
-#include "MemoryDevice.h"
+#include "../MemoryDevice.h"
 
 namespace HSPI
+{
+namespace RAM
 {
 /**
  * @brief IS62/65WVS2568GALL fast serial RAM
  * @ingroup hw_spi
  */
-class SpiRam : public MemoryDevice
+class IS62_65 : public MemoryDevice
 {
 public:
 	using MemoryDevice::MemoryDevice;
@@ -34,12 +36,22 @@ public:
 		Sequential = 0x40, ///< Access entire memory array (DEFAULT)
 	};
 
+	size_t getSize() const override
+	{
+		return 256 * 1024;
+	}
+
+	IoModes getSupportedIoModes() const override
+	{
+		return IoMode::SPIHD | IoMode::SDI | IoMode::SQI;
+	}
+
 	/**
 	 * @brief Configure the RAM into a known operating mode
 	 */
 	bool begin(PinSet pinSet, uint8_t chipSelect)
 	{
-		if(!Device::begin(pinSet, chipSelect)) {
+		if(!MemoryDevice::begin(pinSet, chipSelect)) {
 			return false;
 		}
 
@@ -47,13 +59,13 @@ public:
 		setClockMode(ClockMode::mode0);
 
 		// Ensure device is in SPI mode
-		Device::setIoMode(IoMode::SQI);
+		MemoryDevice::setIoMode(IoMode::SQI);
 		Request req;
 		req.out.set8(0xFF);
 		execute(req);
-		Device::setIoMode(IoMode::SDI);
+		MemoryDevice::setIoMode(IoMode::SDI);
 		execute(req);
-		Device::setIoMode(IoMode::SPIHD);
+		MemoryDevice::setIoMode(IoMode::SPIHD);
 
 		debug_i("RDMR = 0x%08x", getOpMode());
 
@@ -63,29 +75,23 @@ public:
 		return true;
 	}
 
-	/**
-	 * @brief IO Mode switching requires device support
-	 * @param mode Requested new mode
-	 * @retval IoMode Previous mode
-	 *
-	 * If requested mode is not supported the current mode will be returned.
-	 */
-	IoMode setIoMode(IoMode mode)
+	bool setIoMode(IoMode mode) override
 	{
-		auto oldMode = Device::getIoMode();
+		auto oldMode = MemoryDevice::getIoMode();
 		if(oldMode == mode) {
-			return oldMode;
+			return true;
 		}
 
-		if(mode != IoMode::SPIHD && mode != IoMode::SDI && mode != IoMode::SQI) {
+		if(!isSupported(mode)) {
 			debug_e("setIoMode(): Mode %u invalid", unsigned(mode));
-			return oldMode;
+			return false;
 		}
 
 		Request req;
 		if(oldMode != IoMode::SPIHD) {
 			req.out.set8(0xFF); // Exit SDI/SQI mode
 			execute(req);
+			MemoryDevice::setIoMode(IoMode::SPIHD);
 		}
 
 		if(mode != IoMode::SPIHD) {
@@ -93,15 +99,13 @@ public:
 			execute(req);
 		}
 
-		Device::setIoMode(mode);
-		return oldMode;
+		return MemoryDevice::setIoMode(mode);
 	}
 
 	void setOpMode(OpMode mode)
 	{
-		auto savedIoMode = setIoMode(IoMode::SPIHD);
-
-		if(getIoMode() != IoMode::SPIHD) {
+		auto savedIoMode = getIoMode();
+		if(!setIoMode(IoMode::SPIHD)) {
 			debug_e("writeMode() requires SPIHD IO");
 			return;
 		}
@@ -134,7 +138,8 @@ public:
 	OpMode readOpMode()
 	{
 		// requires SPIHD
-		auto savedIoMode = setIoMode(IoMode::SPIHD);
+		auto savedIoMode = getIoMode();
+		setIoMode(IoMode::SPIHD);
 
 		Request req;
 		req.setCommand8(0x05); // RDMR
@@ -168,4 +173,5 @@ private:
 	HSPI::Request req2;
 };
 
+} // namespace RAM
 } // namespace HSPI

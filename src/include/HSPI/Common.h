@@ -13,6 +13,7 @@
 #pragma once
 
 #include <WString.h>
+#include <Data/BitSet.h>
 
 /**
  * @defgroup hw_spi SPI Hardware support
@@ -45,6 +46,14 @@ enum class IoMode : uint8_t {
 	QIO,   ///< Four bits per clock for Address and Data, 1-bit for Command
 	SQI,   ///< Four bits per clock for Command, Address and Data
 };
+
+using IoModes = BitSet<uint8_t, IoMode>;
+
+inline constexpr IoModes operator|(IoMode a, IoMode b)
+{
+	return IoModes(IoModes::bitVal(a) | IoModes::bitVal(b));
+}
+
 
 /*
  * Details for each IO Mode

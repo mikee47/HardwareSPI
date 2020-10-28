@@ -132,11 +132,16 @@ PinSet::normal
       0. GPIO15 (HSPI CS)
 
 PinSet::overlap
-   MISO=SD0, MOSI=SD1, IO1=SD3, IO2=SD2, SCLK = CLK. Three chip selects:
+   MISO=SD0, MOSI=SD1, IO2=SD3, IO3=SD2, SCLK = CLK. Three chip selects:
       0. GPIO15 (HSPI_CS)
       1. GPIO1 (SPI_CS1 / UART0_TXD).
          This conflicts with the normal serial TX pin which should be swapped to GPIO2 if required.
       2. GPIO0 (SPI_CS2)
+
+.. note::
+
+   The connections for IO2/3 look wrong above, but on two different models of SPI RAM chip these
+   have been verified as correct by writing in SPIHD mode and reading in quad mode.
 
 IO Modes
 --------

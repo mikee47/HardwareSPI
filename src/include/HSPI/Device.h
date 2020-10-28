@@ -42,6 +42,11 @@ public:
 		setSpeed(1000000U);
 	}
 
+	virtual ~Device()
+	{
+		end();
+	}
+
 	bool begin(PinSet pinSet, uint8_t chipSelect)
 	{
 		return controller.startDevice(*this, pinSet, chipSelect);
@@ -50,11 +55,6 @@ public:
 	void end()
 	{
 		controller.stopDevice(*this);
-	}
-
-	virtual ~Device()
-	{
-		end();
 	}
 
 	/**
@@ -117,14 +117,22 @@ public:
 	ClockMode getClockMode() const
 	{
 		return clockMode;
-	};
+	}
 
-	void setIoMode(IoMode mode)
+	virtual IoModes getSupportedIoModes() const = 0;
+
+	bool isSupported(IoMode mode) const
+	{
+		return getSupportedIoModes()[mode];
+	}
+
+	virtual bool setIoMode(IoMode mode)
 	{
 		if(ioMode != mode) {
 			ioMode = mode;
 			controller.configChanged(*this);
 		}
+		return true;
 	}
 
 	IoMode getIoMode() const
