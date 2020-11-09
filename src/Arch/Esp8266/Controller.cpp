@@ -78,25 +78,25 @@ volatile Controller::Stats Controller::stats;
 namespace
 {
 const spi_dev_t::clock_t clkEquSys{{
-	.clkcnt_l{0},
-	.clkcnt_h{0},
-	.clkcnt_n{0},
-	.clkdiv_pre{0},
-	.clk_equ_sysclk{true},
+	.clkcnt_l = 0,
+	.clkcnt_h = 0,
+	.clkcnt_n = 0,
+	.clkdiv_pre = 0,
+	.clk_equ_sysclk = true,
 }};
 const spi_dev_t::clock_t clkMin{{
-	.clkcnt_l{0x3f},
-	.clkcnt_h{0x1f},
-	.clkcnt_n{0x3f},
-	.clkdiv_pre{0x1fff},
-	.clk_equ_sysclk{false},
+	.clkcnt_l = 0x3f,
+	.clkcnt_h = 0x1f,
+	.clkcnt_n = 0x3f,
+	.clkdiv_pre = 0x1fff,
+	.clk_equ_sysclk = false,
 }};
 const spi_dev_t::clock_t clkDiv2{{
-	.clkcnt_l{1},
-	.clkcnt_h{0},
-	.clkcnt_n{1},
-	.clkdiv_pre{0},
-	.clk_equ_sysclk{0},
+	.clkcnt_l = 1,
+	.clkcnt_h = 0,
+	.clkcnt_n = 1,
+	.clkdiv_pre = 0,
+	.clk_equ_sysclk = 0,
 }};
 
 /**
@@ -235,7 +235,7 @@ void Controller::begin()
 
 	SPI0.slave.val &= ~0x000003FF; // Don't want interrupts from SPI0
 	SPI1.slave.val &= ~0x000003FF; // Clear all interrupt sources
-	SPI1.slave.trans_inten = 1;	// Interrupt on command completion
+	SPI1.slave.trans_inten = 1;	   // Interrupt on command completion
 	SPI1.slave.slave_mode = false;
 	SPI1.slave.sync_reset = true;
 	SPI1.ctrl1.val = 0;
@@ -392,7 +392,7 @@ uint32_t Controller::setSpeed(Device& dev, uint32_t frequency)
 
 uint32_t Controller::getSpeed(Device& dev) const
 {
-	return getClockFrequency({val: dev.config.reg.clock});
+	return getClockFrequency(spi_dev_t::clock_t{.val = dev.config.reg.clock});
 }
 
 void Controller::updateConfig(Device& dev)
@@ -656,7 +656,7 @@ void IRAM_ATTR Controller::startRequest()
 
 	// Clock
 	auto ioMux = READ_PERI_REG(PERIPHS_IO_MUX_CONF_U);
-	spi_dev_t::clock_t clk{.val{cfg.reg.clock}};
+	spi_dev_t::clock_t clk{.val = cfg.reg.clock};
 	if(clk.clk_equ_sysclk) {
 		ioMux |= SPI1_CLK_EQU_SYS_CLK;
 	} else {
@@ -677,8 +677,8 @@ void IRAM_ATTR Controller::startRequest()
 	SPI1.ctrl.val = cfg.reg.ctrl;
 	SPI1.pin.val = cfg.reg.pin;
 
-	spi_dev_t::user_t user{.val{cfg.reg.user}};
-	spi_dev_t::user1_t user1{.val{cfg.reg.user1}};
+	spi_dev_t::user_t user{.val = cfg.reg.user};
+	spi_dev_t::user1_t user1{.val = cfg.reg.user1};
 
 	trans.addrCmdMask = 0;
 	trans.addrShift = 0;
@@ -752,8 +752,8 @@ void IRAM_ATTR Controller::nextTransaction()
 	auto& req = *trans.request;
 	auto& cfg = req.device->config;
 
-	spi_dev_t::user_t user{.val{cfg.reg.user}};
-	spi_dev_t::user1_t user1{.val{cfg.reg.user1}};
+	spi_dev_t::user_t user{.val = cfg.reg.user};
+	spi_dev_t::user1_t user1{.val = cfg.reg.user1};
 
 	// Setup outgoing data (MOSI)
 	unsigned outlen = req.out.length - trans.outOffset;

@@ -182,8 +182,8 @@ private:
 	uint8_t chipSelect{255};
 	uint32_t speed{0};
 	BitOrder bitOrder{MSBFIRST};
-	ClockMode clockMode{0};
-	IoMode ioMode{IoMode::SPI};
+	ClockMode clockMode{};
+	IoMode ioMode{};
 };
 
 } // namespace HSPI
