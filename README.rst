@@ -138,10 +138,82 @@ PinSet::overlap
          This conflicts with the normal serial TX pin which should be swapped to GPIO2 if required.
       2. GPIO0 (SPI_CS2)
 
+PinSet::manual
+   Typically a GPIO will be assigned to perform chip select (CS).
+   The application should register a callback function via :cpp:func:`HSPI::onSelectDevice`
+   which performs the actual switching. This **MUST** be in IRAM.
+
 .. note::
 
    The connections for IO2/3 look wrong above, but on two different models of SPI RAM chip these
    have been verified as correct by writing in SPIHD mode and reading in quad mode.
+
+Multiplexed CS
+--------------
+
+Multiple devices can be supported on a single CS using, for example using a HC138 3:8 decoder.
+The CS line is connected to an enable input, with three GPIO outputs setting A0-2.
+
+A custom controller should be created like this::
+
+   class CustomController: public HSPI::Controller
+   {
+   public:
+      bool startDevice(Device& dev, PinSet pinSet, uint8_t chipSelect) override
+      {
+         /*
+          * You should perform any custom validation here and return false on failure.
+          * For example, if we're only using 3 of the 8 available outputs.
+          */
+         auto addr = chipSelect & 0x07;
+         if(addr > 3) {
+            debug_e("Invalid CS addr: %u", addr);
+            return false;
+         }
+         
+         /*
+          *
+          */
+         onSelectDevice(selectDevice);
+
+         /*
+          * Initialise hardware Controller
+          */
+         auto cs = chipSelect >> 3;
+         return HSPI::Controller::startDevice(dev, pinSet, cs);
+      }
+
+   private:
+      void IRAM_ATTR selectDevice(uint8_t chipSelect, bool active)
+      {
+         // Only perform GPIO if CS changes as GPIO is expensive
+         if(active && chipSelect != activeChipSelect) {
+            auto addr = chipSelect & 0x07;
+            digitalWrite(PIN_MUXADDR0, addr & 0x01);
+            digitalWrite(PIN_MUXADDR1, addr & 0x02);
+            // As we only need 2 address lines, can leave this one
+            // digitalWrite(PIN_MUXADDR2, addr & 0x03);
+            
+            activeChipSelect = chipSelect;
+         }
+
+         if(getActivePinSet() == HSPI::PinSet::manual) {
+            // Set CS output here
+         }
+      }
+
+      uint8_t activeChipSelect{0};
+   };
+
+The application should register a callback function via :cpp:func:`HSPI::onSelectDevice`
+
+
+allows 8 (or more) SPI devices to share the same bus.
+
+    * Bits 0-2 of the chipSelect value might be assigned to the GPIO output pins setting
+    * the multiplexer address, with bits 3-7 storing the hardware CS setting.
+
+
 
 IO Modes
 --------

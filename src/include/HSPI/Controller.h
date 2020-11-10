@@ -102,9 +102,17 @@ public:
 		} reg;
 	};
 
-	Controller()
-	{
-	}
+	/**
+	 * @brief Interrupt callback for custom Controllers
+	 * @param chipSelect
+	 * @param active true when transaction is about to start, false when completed
+	 *
+	 * For manual CS (PinSet::manual) the actual CS GPIO must be asserted/de-asserted.
+	 *
+	 * Expanding the SPI bus using a HC138 3:8 multiplexer, for example, can also
+	 * be handled here, setting the GPIO address lines appropriately.
+	 */
+	using SelectDevice = void (*)(uint8_t chipSelect, bool active);
 
 	virtual ~Controller()
 	{
@@ -119,10 +127,35 @@ public:
 	 */
 	void end();
 
-	bool startDevice(Device& dev, PinSet pinSet, uint8_t chipSelect);
+	/**
+	 * @brief Set interrupt callback to use for manual CS control (PinSet::manual)
+	 * or if CS pin is multiplexed.
+	 *
+	 * @note Callback MUST be marked IRAM_ATTR
+	 */
+	void onSelectDevice(SelectDevice callback)
+	{
+		selectDeviceCallback = callback;
+	}
 
-	void stopDevice(Device& dev);
+	/**
+	 * @brief Assign a device to a CS# using a specific pin set.
+	 * Only one device may be assigned to any CS.
+	 *
+	 * Custom controllers should override this method to verify/configure chip selects,
+	 * and also provide a callback (via `onSelectDevice()`).
+	 */
+	virtual bool startDevice(Device& dev, PinSet pinSet, uint8_t chipSelect);
 
+	/**
+	 * @brief Release CS for a device.
+	 */
+	virtual void stopDevice(Device& dev);
+
+	/**
+	 * @brief Devices call this method to tell the Controller about configuration changes.
+	 * Internally, we just set a flag and update the register values when required.
+	 */
 	void configChanged(Device& dev);
 
 	/**
@@ -155,6 +188,11 @@ public:
 	static volatile Stats stats;
 #endif
 
+	PinSet IRAM_ATTR getActivePinSet() const
+	{
+		return activePinSet;
+	}
+
 protected:
 	friend Device;
 
@@ -171,9 +209,10 @@ private:
 	void transactionDone();
 
 	PinSet activePinSet{PinSet::none};
-	uint8_t overlapDevices{0};		 ///< Number of registered devices using overlap pins (SPI0)
-	uint8_t normalDevices{0};		 ///< Number of registered devices using HSPI pins (SPI1)
-	std::bitset<8> chipSelectsInUse; ///< Ensures each CS is used only once
+	SelectDevice selectDeviceCallback{nullptr}; ///< Callback for custom controllers
+	uint8_t overlapDevices{0};					///< Number of registered devices using overlap pins (SPI0)
+	uint8_t normalDevices{0};					///< Number of registered devices using HSPI pins (SPI1)
+	std::bitset<8> chipSelectsInUse;			///< Ensures each CS is used only once
 	struct Flags {
 		bool spi0ClockChanged : 1; ///< SPI0 clock MUX setting was changed for a transaction
 		bool taskQueued : 1;
@@ -193,8 +232,8 @@ private:
 		// Flags
 		uint8_t bitOrder : 1;
 		volatile uint8_t busy : 1;
-		uint8_t addrShift; ///< How many bits to shift address left
-		uint32_t addrCmdMask;  ///< In SDI/SQI modes this is combined with address
+		uint8_t addrShift;	///< How many bits to shift address left
+		uint32_t addrCmdMask; ///< In SDI/SQI modes this is combined with address
 	};
 	Transaction trans{};
 };

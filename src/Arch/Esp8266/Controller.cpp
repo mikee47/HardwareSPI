@@ -235,7 +235,7 @@ void Controller::begin()
 
 	SPI0.slave.val &= ~0x000003FF; // Don't want interrupts from SPI0
 	SPI1.slave.val &= ~0x000003FF; // Clear all interrupt sources
-	SPI1.slave.trans_inten = 1;	   // Interrupt on command completion
+	SPI1.slave.trans_inten = 1;	// Interrupt on command completion
 	SPI1.slave.slave_mode = false;
 	SPI1.slave.sync_reset = true;
 	SPI1.ctrl1.val = 0;
@@ -750,7 +750,12 @@ void IRAM_ATTR Controller::startRequest()
 void IRAM_ATTR Controller::nextTransaction()
 {
 	auto& req = *trans.request;
-	auto& cfg = req.device->config;
+	auto& dev = *req.device;
+	auto& cfg = dev.config;
+
+	if(selectDeviceCallback) {
+		selectDeviceCallback(dev.chipSelect, true);
+	}
 
 	spi_dev_t::user_t user{.val = cfg.reg.user};
 	spi_dev_t::user1_t user1{.val = cfg.reg.user1};
@@ -835,6 +840,11 @@ void IRAM_ATTR Controller::transactionDone()
 	}
 
 	auto& req = *trans.request;
+	auto& dev = *req.device;
+
+	if(selectDeviceCallback) {
+		selectDeviceCallback(dev.chipSelect, false);
+	}
 
 	// Read incoming data
 	if(trans.inlen != 0) {

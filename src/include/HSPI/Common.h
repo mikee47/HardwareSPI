@@ -54,7 +54,6 @@ inline constexpr IoModes operator|(IoMode a, IoMode b)
 	return IoModes(IoModes::bitVal(a) | IoModes::bitVal(b));
 }
 
-
 /*
  * Details for each IO Mode
  *
@@ -96,6 +95,7 @@ using BitOrder = uint8_t;
 enum class PinSet {
 	none,	///< Disabled
 	normal,  ///< Standard HSPI pins
+	manual,  ///< HSPI pins with manual chip select
 	overlap, ///< Overlapped with SPI 0
 };
 
