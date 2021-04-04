@@ -63,63 +63,39 @@ void memTest()
 	Serial.println(ram.getSpeed());
 
 	const unsigned blockSize{1024};
-	//	const unsigned ramSize = ram.getSize();
-	const unsigned ramSize = std::min(0x100000U, ram.getSize());
+	const unsigned ramSize = ram.getSize();
 
-	auto wrData = new uint8_t[blockSize];
-	auto rdData = new uint8_t[blockSize];
-	auto zero = new uint8_t[blockSize];
-
-	memset(zero, 0, blockSize);
-
-	for(unsigned i = 0; i < blockSize; ++i) {
-		wrData[i] = i + 0x50;
-	}
-
-	//	HSPI::Request req;
-	//	req.setCommand8(0xC0);
-	//	ram.execute(req);
+	std::unique_ptr<uint8_t[]> wrData(new uint8_t[blockSize]);
+	std::unique_ptr<uint8_t[]> rdData(new uint8_t[blockSize]);
 
 	uint8_t id[16];
 	ram.readId(id, sizeof(id));
-
-	auto mode = ram.getIoMode();
-
-	//if(mode == HSPI::IoMode::QIO) {
-	//	HSPI::Request req;
-	//	req.setCommand8(0xC0);
-	//	ram.execute(req);
-	//}
 
 	bool ok{true};
 	CpuCycleTimer timer;
 	uint32_t writeCycles{0};
 	uint32_t readCycles{0};
-	uint32_t startAddress{0};
+	const uint32_t startAddress{0};
 	uint32_t address = startAddress;
 	uint32_t failCount{0};
 	uint32_t failedBlockCount{0};
 	for(; address < ramSize; address += blockSize) {
-		os_get_random(wrData, blockSize);
+		os_get_random(wrData.get(), blockSize);
 
 		// Write
 		CpuCycleTimer tmr;
 		tmr.start();
-		ram.write(address, wrData, blockSize);
+		ram.write(address, wrData.get(), blockSize);
 		writeCycles += tmr.elapsedTicks();
 
 		// Read
-		// ram.setIoMode(HSPI::IoMode::SPIHD);
-		memset(rdData, 0, blockSize);
+		memset(rdData.get(), 0, blockSize);
 		tmr.start();
-		ram.read(address, rdData, blockSize);
+		ram.read(address, rdData.get(), blockSize);
 		readCycles += tmr.elapsedTicks();
-		// ram.setIoMode(mode);
-
-		//ram.write(address, zero, blockSize);
 
 		// Compare
-		auto diffCount = countDiffs(wrData, rdData, blockSize);
+		auto diffCount = countDiffs(wrData.get(), rdData.get(), blockSize);
 
 		if(diffCount != 0) {
 			ok = false;
@@ -128,8 +104,8 @@ void memTest()
 			if(failCount == 0) {
 				debug_e("memTest failed at 0x%08x", address);
 				auto len = std::min(blockSize, 256U);
-				debug_hex(ERR, "WR", wrData, len);
-				debug_hex(ERR, "RD", rdData, len);
+				debug_hex(ERR, "WR", wrData.get(), len);
+				debug_hex(ERR, "RD", rdData.get(), len);
 			}
 			//									break;
 
@@ -138,15 +114,6 @@ void memTest()
 
 		WDT.alive();
 	}
-
-	delete[] rdData;
-	delete[] wrData;
-
-	//if(mode == HSPI::IoMode::QIO) {
-	//	HSPI::Request req;
-	//	req.setCommand8(0xC0);
-	//	ram.execute(req);
-	//}
 
 	auto byteCount = address - startAddress;
 
