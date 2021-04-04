@@ -43,7 +43,8 @@ public:
 
 	IoModes getSupportedIoModes() const override
 	{
-		return IoMode::SPIHD | IoMode::SDI | IoMode::SQI;
+		return IoMode::SPIHD | IoMode::SQI;
+		// return IoMode::SPIHD | IoMode::SDI | IoMode::SQI;
 	}
 
 	/**
@@ -66,8 +67,6 @@ public:
 		MemoryDevice::setIoMode(IoMode::SDI);
 		execute(req);
 		MemoryDevice::setIoMode(IoMode::SPIHD);
-
-		debug_i("RDMR = 0x%08x", getOpMode());
 
 		setOpMode(OpMode::Sequential);
 		setIoMode(IoMode::SQI);
@@ -92,6 +91,8 @@ public:
 			req.out.set8(0xFF); // Exit SDI/SQI mode
 			execute(req);
 			MemoryDevice::setIoMode(IoMode::SPIHD);
+			// Helps reliability for some reason...
+			readOpMode();
 		}
 
 		if(mode != IoMode::SPIHD) {
@@ -110,7 +111,6 @@ public:
 			return;
 		}
 
-		debug_i("WRMR(%u)", unsigned(mode));
 		Request req;
 		req.setCommand8(0x01); // WRMR
 		req.out.set8(uint8_t(mode));

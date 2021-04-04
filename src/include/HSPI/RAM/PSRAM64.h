@@ -21,6 +21,17 @@ namespace RAM
 /**
  * @brief PSRAM64(H) pseudo-SRAM
  * @ingroup hw_spi
+ * 
+ * Pin
+ * ---
+ * 1    CE
+ * 2    SO/SIO[1]
+ * 3    SIO[2]
+ * 4    VSS
+ * 5    SI/SIO[0]
+ * 6    SCLK
+ * 7    SIO[3]
+ * 8    VCC
  */
 class PSRAM64 : public MemoryDevice
 {
@@ -34,7 +45,8 @@ public:
 
 	IoModes getSupportedIoModes() const override
 	{
-		return IoModes(IoMode::SPIHD | IoMode::QIO | IoMode::SQI);
+		return IoModes(IoMode::SPIHD | IoMode::QIO);
+		// return IoModes(IoMode::SPIHD | IoMode::QIO | IoMode::SQI);
 	}
 
 	/**
@@ -62,31 +74,40 @@ public:
 		req.setCommand8(0x99);
 		execute(req);
 
-		readId();
+		req.setCommand8(0x66);
+		execute(req);
+		req.setCommand8(0x99);
+		execute(req);
 
 		return true;
 	}
 
-	uint8_t readId()
+	size_t readId(void* buffer, size_t bufSize) override
 	{
+		constexpr size_t idSize{8};
+		if(buffer == nullptr || bufSize == 0) {
+			return idSize;
+		}
+
 		auto savedIoMode = getIoMode();
 		if(!setIoMode(IoMode::SPIHD)) {
 			debug_e("readId() requires SPIHD IO");
 			return 0;
 		}
 
-		uint8_t buffer[8];
+		uint8_t id[idSize];
 		Request req;
 		req.setCommand8(0x9F); // Read ID
 		req.setAddress24(0);
-		req.in.set(buffer, sizeof(buffer));
+		req.in.set(id, idSize);
 		execute(req);
 
 		setIoMode(savedIoMode);
 
-		debug_hex(ERR, "ID", buffer, sizeof(buffer));
+		debug_hex(ERR, "ID", id, idSize);
 
-		return buffer[0];
+		memcpy(buffer, id, std::min(bufSize, idSize));
+		return sizeof(id);
 	}
 
 	bool setIoMode(IoMode mode) override

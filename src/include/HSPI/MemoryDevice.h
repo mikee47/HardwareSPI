@@ -26,15 +26,30 @@ public:
 	using Device::Device;
 
 	/**
-	  * @name Prepare a write request
-	  * @{
-	  */
+	 * @brief Read device identifier, where supported
+	 * @param buffer Buffer to store ID information
+	 * @param bufSize Size of buffer in bytes
+	 * @retval size_t Size of information, may be larger than bufSize
+	 * 
+	 * Caller may obtain required buffer size by calling with `buffer = nullptr`
+	 * or `bufSize = 0`.
+	 */
+	virtual size_t readId(void* buffer, size_t bufSize)
+	{
+		return 0;
+	}
 
+	/**
+	 * @brief Get size of memory
+	 * @retval size_t Size of memory device in bytes
+	 */
 	virtual size_t getSize() const = 0;
 
 	/**
-	 * @param request
-	 * @param address
+	  * @name Prepare a write request
+	 *  @param request
+	 *  @param address
+	  * @{
 	 */
 	virtual void prepareWrite(HSPI::Request& req, uint32_t address) = 0;
 

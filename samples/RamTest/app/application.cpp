@@ -9,8 +9,8 @@
 namespace
 {
 HSPI::Controller spi;
-HSPI::RAM::PSRAM64 ram(spi);
-//HSPI::RAM::IS62_65 ram(spi);
+// HSPI::RAM::PSRAM64 ram(spi);
+HSPI::RAM::IS62_65 ram(spi);
 SimpleTimer ramTimer;
 BasicDevice dev0(spi), dev1(spi), dev2(spi);
 Profiling::CpuUsage cpuUsage;
@@ -29,12 +29,15 @@ void printSpiStats()
 	stats.clear();
 }
 
-String getSpeed(NanoTime::Time<uint32_t> time, uint32_t byteCount)
+String getSpeed(uint32_t cycles, uint32_t byteCount)
 {
 	String s;
-	s += time.toString();
-	s += " (";
-	auto mbps = 8 * 1e6 * byteCount / time / (1024 * 1024);
+	s += cycles;
+	s += " for ";
+	s += byteCount / 1024;
+	s += "K (";
+	auto time = CpuCycleTimer::ticksToTime(cycles);
+	double mbps = (8 * 1e9 / 1e6) * byteCount / time;
 	s += mbps;
 	s += "Mbit/s)";
 	return s;
@@ -77,7 +80,8 @@ void memTest()
 	//	req.setCommand8(0xC0);
 	//	ram.execute(req);
 
-	ram.readId();
+	uint8_t id[16];
+	ram.readId(id, sizeof(id));
 
 	auto mode = ram.getIoMode();
 
@@ -88,28 +92,29 @@ void memTest()
 	//}
 
 	bool ok{true};
-	ElapseTimer timer;
-	NanoTime::Time<uint32_t> writeTime(NanoTime::Microseconds, 0);
-	NanoTime::Time<uint32_t> readTime(NanoTime::Microseconds, 0);
-	uint32_t startAddress{0x1000};
+	CpuCycleTimer timer;
+	uint32_t writeCycles{0};
+	uint32_t readCycles{0};
+	uint32_t startAddress{0};
 	uint32_t address = startAddress;
 	uint32_t failCount{0};
+	uint32_t failedBlockCount{0};
 	for(; address < ramSize; address += blockSize) {
-		//		os_get_random(wrData, blockSize);
+		os_get_random(wrData, blockSize);
 
 		// Write
-		ElapseTimer tmr;
+		CpuCycleTimer tmr;
 		tmr.start();
 		ram.write(address, wrData, blockSize);
-		writeTime += tmr.elapsedTime();
+		writeCycles += tmr.elapsedTicks();
 
 		// Read
-		ram.setIoMode(HSPI::IoMode::SPIHD);
+		// ram.setIoMode(HSPI::IoMode::SPIHD);
 		memset(rdData, 0, blockSize);
 		tmr.start();
 		ram.read(address, rdData, blockSize);
-		readTime += tmr.elapsedTime();
-		ram.setIoMode(mode);
+		readCycles += tmr.elapsedTicks();
+		// ram.setIoMode(mode);
 
 		//ram.write(address, zero, blockSize);
 
@@ -118,6 +123,7 @@ void memTest()
 
 		if(diffCount != 0) {
 			ok = false;
+			++failedBlockCount;
 
 			if(failCount == 0) {
 				debug_e("memTest failed at 0x%08x", address);
@@ -142,14 +148,20 @@ void memTest()
 	//	ram.execute(req);
 	//}
 
+	auto byteCount = address - startAddress;
+
 	if(ok) {
 		debug_i("memTest complete");
 	} else {
-		debug_w("Mismatch in %u bytes (%f%%)", failCount, 100.0 * failCount / ramSize);
+		debug_w("Mismatch in %u bytes (%f%%), %u/%u failed blocks", failCount, 100.0 * failCount / byteCount,
+				failedBlockCount, byteCount / blockSize);
 	}
 
-	debug_i("Elapsed: %s, I/O write: %s, I/O read: %s", timer.elapsedTime().toString().c_str(),
-			getSpeed(writeTime, address - startAddress).c_str(), getSpeed(readTime, address).c_str());
+	debug_i("Elapsed: %u cycles, I/O write: %s, I/O read: %s", timer.elapsedTicks(),
+			getSpeed(writeCycles, byteCount).c_str(), getSpeed(readCycles, byteCount).c_str());
+
+	debug_i("Equivalent 4K cycles, I/O write: %f, I/O read: %f", 4096.0 * writeCycles / byteCount,
+			4096.0 * readCycles / byteCount);
 
 	printSpiStats();
 }
