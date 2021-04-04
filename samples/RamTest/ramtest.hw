@@ -1,0 +1,29 @@
+{
+    "name": "RAM Test application profile",
+    "comment": "Test file loaded from FWFS partition, application doesn't require WIFI so can be shrunk",
+    "base_config": "standard",
+    "options": [
+        "alternate"
+    ],
+    "partition_table_offset": "0x00002000",
+    "partitions": {
+        "rom0": {
+            "size": "480K",
+            "address": "0x00008000"
+        },
+        "fwfs1": {
+            "device": "spiFlash",
+            "address": "0x00080000",
+            "size": "512K",
+            "type": "data",
+            "subtype": "fwfs",
+            "readonly": false,
+            "encrypted": false,
+            "filename": "$(FW_BASE)/fwfs1.bin",
+            "build": {
+                "target": "fwfs-build",
+                "config": "fwfs1.fwfs"
+            }
+        }
+    }
+}

@@ -1,0 +1,6 @@
+{
+    "name": "Ram Test FWFS volume",
+    "source": {
+        "/": "files"
+    }
+}

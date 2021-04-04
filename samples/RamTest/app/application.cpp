@@ -14,7 +14,10 @@ HSPI::RAM::IS62_65 ram(spi);
 SimpleTimer ramTimer;
 BasicDevice dev0(spi), dev1(spi), dev2(spi);
 Profiling::CpuUsage cpuUsage;
-IMPORT_FSTR(smingLogo, PROJECT_DIR "/resource/sming_logo.raw")
+CpuCycleTimer streamTimer;
+HSPI::StreamAdapter adapter(ram);
+
+DEFINE_FSTR(smingLogo, "sming_logo.raw")
 
 // Chip select to use for our device(s)
 #define CS_RAM 2
@@ -22,9 +25,21 @@ IMPORT_FSTR(smingLogo, PROJECT_DIR "/resource/sming_logo.raw")
 void printSpiStats()
 {
 	auto& stats = spi.stats;
-	debug_i("HSPI stats: requests = %u, trans = %u, waitCycles = %u, tasks queued = %u, tasks cancelled = %u",
-			stats.requestCount, stats.transCount, stats.waitCycles, stats.tasksQueued, stats.tasksCancelled);
-	debug_i("Cpu Usage: %0.2f %%", cpuUsage.getUtilisation() / 100.0);
+	Serial.print(F("HSPI stats: requests = "));
+	Serial.print(stats.requestCount);
+
+	Serial.print(F(", trans = "));
+	Serial.print(stats.transCount);
+	Serial.print(F(", waitCycles = "));
+	Serial.print(stats.waitCycles);
+	Serial.print(F(", tasks queued = "));
+	Serial.print(stats.tasksQueued);
+	Serial.print(F(", tasks cancelled = "));
+	Serial.println(stats.tasksCancelled);
+
+	Serial.print(F("Cpu Usage: "));
+	Serial.print(cpuUsage.getUtilisation() / 100.0);
+	Serial.println('%');
 
 	stats.clear();
 }
@@ -104,8 +119,8 @@ void memTest()
 			if(failCount == 0) {
 				debug_e("memTest failed at 0x%08x", address);
 				auto len = std::min(blockSize, 256U);
-				debug_hex(ERR, "WR", wrData.get(), len);
-				debug_hex(ERR, "RD", rdData.get(), len);
+				m_printHex("WR", wrData.get(), len);
+				m_printHex("RD", rdData.get(), len);
 			}
 			//									break;
 
@@ -118,24 +133,37 @@ void memTest()
 	auto byteCount = address - startAddress;
 
 	if(ok) {
-		debug_i("memTest complete");
+		Serial.println(F("memTest complete"));
 	} else {
-		debug_w("Mismatch in %u bytes (%f%%), %u/%u failed blocks", failCount, 100.0 * failCount / byteCount,
-				failedBlockCount, byteCount / blockSize);
+		Serial.print(F("Mismatch in "));
+		Serial.print(failCount);
+		Serial.print(F(" bytes ("));
+		Serial.print(100.0 * failCount / byteCount);
+		Serial.print(F("%), "));
+		Serial.print(failedBlockCount);
+		Serial.print('/');
+		Serial.print(byteCount / blockSize);
+		Serial.println(F(" failed blocks"));
 	}
 
-	debug_i("Elapsed: %u cycles, I/O write: %s, I/O read: %s", timer.elapsedTicks(),
-			getSpeed(writeCycles, byteCount).c_str(), getSpeed(readCycles, byteCount).c_str());
+	Serial.print(F("Elapsed: "));
+	Serial.print(timer.elapsedTicks());
+	Serial.print(F(" cycles, I/O write: "));
+	Serial.print(getSpeed(writeCycles, byteCount));
+	Serial.print(F(", I/O read: "));
+	Serial.println(getSpeed(readCycles, byteCount));
 
-	debug_i("Equivalent 4K cycles, I/O write: %f, I/O read: %f", 4096.0 * writeCycles / byteCount,
-			4096.0 * readCycles / byteCount);
+	Serial.print(F("Equivalent 4K cycles, I/O write: "));
+	Serial.print(4096.0 * writeCycles / byteCount);
+	Serial.print(F(", I/O read: "));
+	Serial.println(4096.0 * readCycles / byteCount);
 
 	printSpiStats();
 }
 
 void spiRamTest()
 {
-	debug_i("SPI RAM test");
+	Serial.println(F("SPI RAM test"));
 
 	for(unsigned i = 0; i < 8; ++i) {
 		auto m = HSPI::IoMode(i);
@@ -145,19 +173,6 @@ void spiRamTest()
 		assert(ram.setIoMode(m));
 		memTest();
 	}
-
-	/*
-	// Write memory
-	char buf[256];
-	flash_s1d13781text.readFlash(0, buf, sizeof(buf));
-	ram.write(0, buf, sizeof(buf));
-	debug_hex(ERR, "WRITE", buf, sizeof(buf));
-
-	// Read memory
-	memset(buf, 0, sizeof(buf));
-	ram.read(0, buf, sizeof(buf));
-	debug_hex(ERR, "READ", buf, sizeof(buf));
-*/
 }
 
 void basicTests(HSPI::PinSet pinSet)
@@ -184,35 +199,43 @@ void basicTests()
 	basicTests(HSPI::PinSet::normal);
 }
 
-ElapseTimer streamTimer;
-HSPI::StreamAdapter adapter(ram);
-
 void printAdapterStats()
 {
 	auto requested = adapter.getBytesRequested();
 	auto transferred = adapter.getBytesTransferred();
 	String speed = getSpeed(streamTimer.elapsedTime(), transferred);
-	debug_w("Stream %s all done, %u bytes requested, %u bytes transferred, elapsed = %s",
-			adapter.getIsWrite() ? "WRITE" : "READ", requested, transferred, speed.c_str());
-	debug_w("Max tasks = %u", System.getMaxTaskCount());
+
+	Serial.print(F("Stream "));
+	Serial.print(adapter.getIsWrite() ? "WRITE" : "READ");
+	Serial.print(F(" all done, "));
+	Serial.print(requested);
+	Serial.print(F(" bytes requested, "));
+	Serial.print(transferred);
+	Serial.print(F(" bytes transferred, elapsed = "));
+	Serial.println(speed);
+
+	Serial.print(F("Max tasks = "));
+	Serial.println(System.getMaxTaskCount());
 }
 
 void ramStreamTest()
 {
+	Serial.println(F("RAM Stream Test"));
+
 	cpuUsage.reset();
 	streamTimer.start();
-	auto stream = new FSTR::Stream(smingLogo);
+	auto stream = new FileStream(smingLogo);
 	adapter.write(stream, 0, 409600, []() {
 		printAdapterStats();
 		printSpiStats();
 
 		auto len = adapter.getBytesTransferred();
-		auto fs = new FileStream("logo.out", eFO_CreateNewAlways | eFO_ReadWrite);
+		// auto fs = new FileStream("logo.out", eFO_CreateNewAlways | eFO_ReadWrite);
+		auto fs = new LimitedMemoryStream(1024);
 		streamTimer.start();
 		adapter.read(fs, 0, len, []() {
 			printAdapterStats();
 			printSpiStats();
-			ramTimer.startOnce();
 		});
 	});
 }
@@ -223,7 +246,7 @@ void ready()
 	//ramTimer.initializeMs<10000>(spiRamTest).start();
 	//	System.queueCallback(spiRamTest);
 
-	// ramTimer.initializeMs<4000>(ramStreamTest).startOnce();
+	ramTimer.initializeMs<2000>(ramStreamTest).startOnce();
 }
 
 } // namespace
@@ -240,14 +263,17 @@ void init()
 	Serial.begin(SERIAL_BAUD_RATE);
 	Serial.systemDebugOutput(true);
 
+	fwfs_mount();
+
 	spi.begin();
 
 	// Initialise RAM
 	ram.setSpeed(40000000U);
 	if(!ram.begin(HSPI::PinSet::overlap, CS_RAM)) {
-		debug_e("Failed to start RAM device");
+		Serial.println(F("Failed to start RAM device"));
 	}
-	debug_i("RAM clock = %u", ram.getSpeed());
+	Serial.print(F("RAM clock = "));
+	Serial.println(ram.getSpeed());
 
 	cpuUsage.begin(ready);
 }
