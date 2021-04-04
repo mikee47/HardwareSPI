@@ -172,7 +172,9 @@ A custom controller should be created like this::
          }
          
          /*
-          *
+          * Provide a callback to route chip select signal as required.
+          * Note this only needs to be done once, so could be called externally without
+          * subclassing HSPI::Controller if the other mechanisms aren't required.
           */
          onSelectDevice(selectDevice);
 
@@ -184,35 +186,34 @@ A custom controller should be created like this::
       }
 
    private:
-      void IRAM_ATTR selectDevice(uint8_t chipSelect, bool active)
-      {
-         // Only perform GPIO if CS changes as GPIO is expensive
-         if(active && chipSelect != activeChipSelect) {
-            auto addr = chipSelect & 0x07;
-            digitalWrite(PIN_MUXADDR0, addr & 0x01);
-            digitalWrite(PIN_MUXADDR1, addr & 0x02);
-            // As we only need 2 address lines, can leave this one
-            // digitalWrite(PIN_MUXADDR2, addr & 0x03);
-            
-            activeChipSelect = chipSelect;
-         }
-
-         if(getActivePinSet() == HSPI::PinSet::manual) {
-            // Set CS output here
-         }
-      }
+      static void IRAM_ATTR selectDevice(uint8_t chipSelect, bool active);
 
       uint8_t activeChipSelect{0};
    };
 
-The application should register a callback function via :cpp:func:`HSPI::onSelectDevice`
+Now in the .cpp file::
 
+   CustomController spi;
 
-allows 8 (or more) SPI devices to share the same bus.
+   void IRAM_ATTR CustomController::selectDevice(uint8_t chipSelect, bool active)
+   {
+      // Only perform GPIO if CS changes as GPIO is expensive
+      if(active && chipSelect != activeChipSelect) {
+         auto addr = chipSelect & 0x07;
+         digitalWrite(PIN_MUXADDR0, addr & 0x01);
+         digitalWrite(PIN_MUXADDR1, addr & 0x02);
+         // As we only need 2 address lines, can leave this one
+         // digitalWrite(PIN_MUXADDR2, addr & 0x03);
 
-    * Bits 0-2 of the chipSelect value might be assigned to the GPIO output pins setting
-    * the multiplexer address, with bits 3-7 storing the hardware CS setting.
+         activeChipSelect = chipSelect;
+      }
 
+      // If using a hardware CS output then we're done.
+
+      if(spi.getActivePinSet() == HSPI::PinSet::manual) {
+         // For manual chip select operation, set the state directly here
+      }
+   }
 
 
 IO Modes
