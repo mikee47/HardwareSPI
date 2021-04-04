@@ -531,7 +531,7 @@ void Controller::execute(Request& req)
 
 	// For high clock speeds don't use transaction interrupts
 	if(req.async && dev->speed >= 16000000U) {
-		req.task = true;
+		//		req.task = true;
 	}
 
 	if(req.maxTransactionSize == 0 || req.maxTransactionSize > SPI_BUFSIZE) {
