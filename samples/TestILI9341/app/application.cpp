@@ -3,7 +3,7 @@
 
 /*
 Pinout display koblet til geekreit:
-MISO SD0        (oransj -> 8H)
+MISO SD0        (oransj -> 8H)m
 LED             (gul    -> +)
 CLK  CLK        (grønn  -> 7H)
 MOSI SD1        (blå    -> 10H)
@@ -44,75 +44,155 @@ public:
 		setBitOrder(MSBFIRST);
 		setClockMode(HSPI::ClockMode::mode0);
 		setIoMode(HSPI::IoMode::SPI);
+
+		pinMode(PIN_DC, OUTPUT);
+		pinMode(PIN_RESET, OUTPUT);
+
+		reset();
 		return true;
+	}
+
+	void reset()
+	{
+		digitalWrite(PIN_RESET, HIGH);
+		digitalWrite(PIN_RESET, LOW);
+		delay(50);
+		digitalWrite(PIN_RESET, HIGH);
+		delay(100);
 	}
 };
 
 HSPI::Controller spi;
 ILI9341_SPI screen(spi);
+SimpleTimer timer;
 
-void dumpBuffer(const String& debugText, void* buffer, size_t length)
+#define STATE_MAP(XX)                                                                                                  \
+	XX(powerOn)                                                                                                        \
+	XX(softwareReset)                                                                                                  \
+	XX(sleepOut)                                                                                                       \
+	XX(diagnostic)                                                                                                     \
+	XX(run)
+
+enum class State {
+#define XX(s) s,
+	STATE_MAP(XX)
+#undef XX
+};
+
+String toString(State state)
 {
-	Serial.print(debugText);
-	m_printHex("RX", buffer, length);
+	switch(state) {
+#define XX(s)                                                                                                          \
+	case State::s:                                                                                                     \
+		return F(#s);
+		STATE_MAP(XX)
+#undef XX
+	default:
+		assert(false);
+	}
 }
 
-void close()
-{
-	Serial.println("*** close");
-	screen.end();
-	spi.end();
-	Serial.println("*** done");
-}
+State state;
 
-void IRAM_ATTR print_request(const String& txt, HSPI::Request& r)
+// void dumpBuffer(const String& debugText, void* buffer, size_t length)
+// {
+// 	Serial.print(debugText);
+// 	m_printHex("RX", buffer, length);
+// }
+
+// void close()
+// {
+// 	Serial.println("*** close");
+// 	screen.end();
+// 	spi.end();
+// 	Serial.println("*** done");
+// }
+
+void IRAM_ATTR print_request(HSPI::Request& r)
 {
-	Serial.println(txt);
+	Serial.printf(_F("*** Request done - %s\r\n"), toString(state).c_str());
 	if(r.cmdLen > 0) {
 		Serial.printf("Command : %02X\n", r.cmd);
 	}
 	if(r.addrLen > 0) {
 		Serial.printf("Address : %0x (%d)\n", r.addr, r.addrLen);
 	}
-	if(r.in.length > 0) {
-		Serial.printf("Data in : %0x (%d)\n", r.in.data32, r.in.length);
-	}
 	if(r.out.length > 0) {
-		Serial.printf("Data out: %0x (%d)\n", r.out.data32, r.out.length);
+		m_printHex("DATA OUT", r.out.get(), r.out.length);
+	}
+	if(r.in.length > 0) {
+		m_printHex("DATA IN", r.in.get(), r.in.length);
 	}
 }
 
-void IRAM_ATTR request_complete(HSPI::Request& r)
+// void IRAM_ATTR request_complete(HSPI::Request& r)
+// {
+// 	System.queueCallback(close);
+// }
+
+void sendRequest()
 {
-	System.queueCallback(close);
-}
-
-void testSequence()
-{
-	Serial.println("****************************************");
-	Serial.println("*** start");
-	pinMode(PIN_DC, OUTPUT);
-	pinMode(PIN_RESET, OUTPUT);
-
-	// reset display
-	digitalWrite(PIN_RESET, HIGH);
-	digitalWrite(PIN_RESET, LOW);
-	delay(50);
-	digitalWrite(PIN_RESET, HIGH);
-	delay(100);
-
-	// init controller
-	spi.begin();
-
-	// assign device to CS-pin
-	screen.begin(HSPI::PinSet::overlap, PINSET_OVERLAP_SPI_CS2);
-
 	HSPI::Request req;
-	req.setCommand8(0x0c);
-	req.in.set8(0);
-	digitalWrite(PIN_DC, LOW);
-	screen.execute(req);
-	print_request("*** Request done", req);
+
+	switch(state) {
+	case State::powerOn:
+		// Command
+		digitalWrite(PIN_DC, LOW);
+		req.out.set8(0x01);
+		req.in.set8(0);
+		screen.execute(req);
+		print_request(req);
+		state = State::softwareReset;
+		break;
+
+	case State::softwareReset:
+		// Command
+		digitalWrite(PIN_DC, LOW);
+		req.out.set8(0x11);
+		req.in.set8(0);
+		screen.execute(req);
+		print_request(req);
+		state = State::sleepOut;
+		break;
+
+	case State::sleepOut:
+		digitalWrite(PIN_DC, LOW);
+		req.out.set8(0x0f);
+		req.in.set8(0);
+		screen.execute(req);
+		print_request(req);
+		digitalWrite(PIN_DC, HIGH);
+		req.out.set16(0);
+		req.in.set16(0);
+		screen.execute(req);
+		print_request(req);
+		state = State::diagnostic;
+		break;
+
+	case State::diagnostic:
+	case State::run:
+		state = State::run;
+		// Command
+		digitalWrite(PIN_DC, LOW);
+		req.out.set8(0x04);
+		req.in.set8(0);
+		screen.execute(req);
+		digitalWrite(PIN_DC, HIGH);
+		req.out.set32(0);
+		req.in.set32(0);
+		screen.execute(req);
+		print_request(req);
+		break;
+	}
+
+	// Command
+
+	// Command
+	// digitalWrite(PIN_DC, LOW);
+	// req.out.set8(0x09);
+	// req.in.set8(0);
+	// screen.execute(req);
+	// print_request(req);
 
 	// //r2.setCommand(0xd3, 8);
 	// r2.device = &screen;
@@ -124,6 +204,20 @@ void testSequence()
 	// print_request("*** Request 2 done", r2);
 }
 
+void spiInit()
+{
+	Serial.println("****************************************");
+	Serial.println("*** start");
+
+	// init controller
+	spi.begin();
+
+	// assign device to CS-pin
+	screen.begin(HSPI::PinSet::overlap, PINSET_OVERLAP_SPI_CS2);
+
+	timer.initializeMs<1000>(sendRequest).start();
+}
+
 } // namespace
 
 void init()
@@ -133,5 +227,5 @@ void init()
 
 	debug_i("ILI9341 comms test using HardwareSPI library");
 
-	testSequence();
+	spiInit();
 }

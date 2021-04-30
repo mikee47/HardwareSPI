@@ -48,6 +48,11 @@ struct Data {
 		clear();
 	}
 
+	void* get()
+	{
+		return isPointer ? ptr : data;
+	}
+
 	/**
 	 * @brief Reset to zero-length
 	 */
