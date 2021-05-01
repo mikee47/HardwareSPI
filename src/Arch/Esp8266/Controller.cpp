@@ -786,6 +786,7 @@ void IRAM_ATTR Controller::nextTransaction()
 			if(inlen > outlen) {
 				user1.usr_mosi_bitlen = (inlen * 8) - 1;
 			}
+			user.usr_mosi = true;
 			user.usr_miso = false;
 		} else {
 			user1.usr_miso_bitlen = (inlen * 8) - 1;
