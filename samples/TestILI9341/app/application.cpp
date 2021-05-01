@@ -204,6 +204,63 @@ void sendRequest()
 	// print_request("*** Request 2 done", r2);
 }
 
+#define TFT_DC_DATA digitalWrite(PIN_DC, HIGH)
+#define TFT_DC_COMMAND digitalWrite(PIN_DC, LOW)
+
+void transmitCmdData(uint8_t cmd, uint8_t* data, uint8_t numDataByte)
+{
+	HSPI::Request req;
+	TFT_DC_COMMAND;
+	req.out.set8(cmd);
+	req.in.set8(0);
+	screen.execute(req);
+
+	TFT_DC_DATA;
+	req.out.set(data, numDataByte);
+	req.in.set(data, numDataByte);
+	screen.execute(req);
+}
+
+// void transmitData(uint16_t data)
+// {
+// 	TFT_CS_ACTIVE;
+// 	SPI.transfer((uint8_t*)&data, 2);
+// 	TFT_CS_DEACTIVE;
+// }
+
+// void transmitCmdData(uint8_t cmd, uint32_t data)
+// {
+// 	TFT_DC_COMMAND;
+
+// 	TFT_CS_ACTIVE;
+// 	SPI.transfer(cmd);
+// 	TFT_CS_DEACTIVE;
+
+// 	TFT_DC_DATA;
+// 	TFT_CS_ACTIVE;
+// 	SPI.transfer32(data);
+// 	TFT_CS_DEACTIVE;
+// }
+
+// void transmitData(uint16_t data, int32_t repeats)
+// {
+// 	TFT_CS_ACTIVE;
+// 	while(repeats--) {
+// 		SPI.transfer16(data);
+// 	}
+// 	TFT_CS_DEACTIVE;
+// }
+
+void transmitCmd(uint8_t cmd)
+{
+	HSPI::Request req;
+	TFT_DC_COMMAND;
+	req.out.set8(cmd);
+	req.in.set8(0);
+	screen.execute(req);
+	TFT_DC_DATA;
+}
+
 void spiInit()
 {
 	Serial.println("****************************************");
@@ -215,7 +272,119 @@ void spiInit()
 	// assign device to CS-pin
 	screen.begin(HSPI::PinSet::overlap, PINSET_OVERLAP_SPI_CS2);
 
-	timer.initializeMs<1000>(sendRequest).start();
+	uint8_t data[15]{};
+
+	data[0] = 0x39;
+	data[1] = 0x2C;
+	data[2] = 0x00;
+	data[3] = 0x34;
+	data[4] = 0x02;
+	transmitCmdData(0xCB, data, 5);
+
+	data[0] = 0x00;
+	data[1] = 0XC1;
+	data[2] = 0X30;
+	transmitCmdData(0xCF, data, 3);
+
+	data[0] = 0x85;
+	data[1] = 0x00;
+	data[2] = 0x78;
+	transmitCmdData(0xE8, data, 3);
+
+	data[0] = 0x00;
+	data[1] = 0x00;
+	transmitCmdData(0xEA, data, 2);
+
+	data[0] = 0x64;
+	data[1] = 0x03;
+	data[2] = 0X12;
+	data[3] = 0X81;
+	transmitCmdData(0xED, data, 4);
+
+	data[0] = 0x20;
+	transmitCmdData(0xF7, data, 1);
+
+	data[0] = 0x23;					//VRH[5:0]
+	transmitCmdData(0xC0, data, 1); //Power control
+
+	data[0] = 0x10;					//SAP[2:0];BT[3:0]
+	transmitCmdData(0xC1, data, 1); //Power control
+
+	data[0] = 0x3e; //Contrast
+	data[1] = 0x28;
+	transmitCmdData(0xC5, data, 2); //VCM control
+
+	data[0] = 0x86;					//--
+	transmitCmdData(0xC7, data, 1); //VCM control2
+
+	data[0] = 0x48; //C8
+
+	//This command works with ili9341
+	//transmitCmdData(0x36, data, 1);    	// Memory Access Control
+
+	//This commands works with ili9341-9340-9340c
+	transmitCmdData(0x40, data, 1);
+	transmitCmdData(0x08, data, 1);
+
+	data[0] = 0x55;
+	transmitCmdData(0x3A, data, 1);
+
+	data[0] = 0x00;
+	data[1] = 0x18;
+	transmitCmdData(0xB1, data, 2);
+
+	data[0] = 0x08;
+	data[1] = 0x82;
+	data[2] = 0x27;
+	transmitCmdData(0xB6, data, 3); // Display Function Control
+
+	data[0] = 0x00;
+	transmitCmdData(0xF2, data, 1); // 3Gamma Function Disable
+
+	data[0] = 0x01;
+	transmitCmdData(0x26, data, 1); //Gamma curve selected
+
+	data[0] = 0x0F;
+	data[1] = 0x31;
+	data[2] = 0x2B;
+	data[3] = 0x0C;
+	data[4] = 0x0E;
+	data[5] = 0x08;
+	data[6] = 0x4E;
+	data[7] = 0xF1;
+	data[8] = 0x37;
+	data[9] = 0x07;
+	data[10] = 0x10;
+	data[11] = 0x03;
+	data[12] = 0x0E;
+	data[13] = 0x09;
+	data[14] = 0x00;
+	transmitCmdData(0xE0, data, 15); //Set Gamma
+
+	data[0] = 0x00;
+	data[1] = 0x0E;
+	data[2] = 0x14;
+	data[3] = 0x03;
+	data[4] = 0x11;
+	data[5] = 0x07;
+	data[6] = 0x31;
+	data[7] = 0xC1;
+	data[8] = 0x48;
+	data[9] = 0x08;
+	data[10] = 0x0F;
+	data[11] = 0x0C;
+	data[12] = 0x31;
+	data[13] = 0x36;
+	data[14] = 0x0F;
+	transmitCmdData(0xE1, data, 15); //Set Gamma
+
+	transmitCmd(0x11); //Exit Sleep
+	delayMicroseconds(120000);
+
+	transmitCmd(0x29); //Display on
+	transmitCmd(0x2c);
+
+	// timer.initializeMs<1000>(sendRequest).start();
 }
 
 } // namespace
