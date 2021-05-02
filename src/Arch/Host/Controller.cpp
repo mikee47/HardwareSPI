@@ -69,8 +69,11 @@ void Controller::execute(Request& req)
 	assert(!req.busy);
 	assert(req.device != nullptr);
 
-	debug_i("req .out = %p, %u; .in = %p, %u; .callback = %p, %p; async = %u", req.out.ptr, req.out.length, req.in.ptr,
-			req.in.length, req.callback, req.param, req.async);
+	debug_i("req .out = %p, %u; .in = %p, %u; .callback = %p, %p; async = %u", req.out.get(), req.out.length,
+			req.in.get(), req.in.length, req.callback, req.param, req.async);
+	if(req.out.length > 0) {
+		debug_hex(INFO, "OUT", req.out.get(), std::min(req.out.length, uint16_t(32)), -1, 32);
+	}
 
 	if(req.async && req.callback != nullptr) {
 		req.busy = true;
