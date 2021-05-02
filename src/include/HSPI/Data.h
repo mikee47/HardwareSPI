@@ -79,6 +79,11 @@ struct Data {
 		isPointer = 1;
 	}
 
+	void* get()
+	{
+		return isPointer ? ptr : data;
+	}
+
 	/**
 	 * @name Set internal data value of 1-4 bytes
 	 * @note Data is sent LSB, MSB (native byte order)

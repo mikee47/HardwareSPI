@@ -17,6 +17,11 @@
 
 namespace HSPI
 {
+namespace
+{
+SimpleTimer asyncTimer;
+}
+
 #ifdef HSPI_ENABLE_STATS
 volatile Controller::Stats Controller::stats;
 #endif
@@ -69,19 +74,68 @@ void Controller::execute(Request& req)
 	assert(!req.busy);
 	assert(req.device != nullptr);
 
-	debug_i("req .out = %p, %u; .in = %p, %u; .callback = %p, %p; async = %u", req.out.ptr, req.out.length, req.in.ptr,
-			req.in.length, req.callback, req.param, req.async);
+	debug_i("req .out = %p, %u; .in = %p, %u; .callback = %p, %p; async = %u", req.out.get(), req.out.length,
+			req.in.get(), req.in.length, req.callback, req.param, req.async);
+	if(req.out.length > 0) {
+		debug_hex(INFO, "OUT", req.out.get(), std::min(req.out.length, uint16_t(32)), -1, 32);
+	}
 
-	if(req.async && req.callback != nullptr) {
-		req.busy = true;
-		auto timer = new AutoDeleteTimer;
-		timer
-			->initializeMs<10>([&req]() {
-				req.busy = false;
-				req.callback(req);
-			})
-			.startOnce();
+	req.busy = true;
+
+	// Packet transfer already in progress?
+	if(trans.busy) {
+		// Tack new packet onto end of chain
+		auto pkt = trans.request;
+		while(pkt->next) {
+			pkt = pkt->next;
+		}
+		pkt->next = &req;
+	} else {
+		// Not currently running, so do this one now
+		trans.request = &req;
+		startRequest();
+	}
+
+	if(req.async) {
+		asyncTimer.initializeMs<10>(
+			[](void* param) {
+				auto spi = static_cast<Controller*>(param);
+				spi->transactionDone();
+			},
+			this);
+		asyncTimer.startOnce();
+	} else {
+		transactionDone();
 	}
 }
+
+void Controller::startRequest()
+{
+	trans.busy = true;
+	auto& req = *trans.request;
+	auto& dev = *req.device;
+	if(selectDeviceCallback) {
+		selectDeviceCallback(dev.chipSelect, true);
+	}
+	dev.transferStarting(req);
+}
+
+void Controller::transactionDone()
+{
+	asyncTimer.stop();
+
+	while(trans.request != nullptr) {
+		auto& req = *trans.request;
+		auto& dev = *req.device;
+		if(selectDeviceCallback) {
+			selectDeviceCallback(dev.chipSelect, false);
+		}
+		trans.request = req.next;
+		req.next = nullptr;
+		req.busy = false;
+		dev.transferComplete(req);
+	}
+	trans.busy = false;
+};
 
 } // namespace HSPI
