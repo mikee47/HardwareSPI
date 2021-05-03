@@ -223,6 +223,7 @@ private:
 	uint8_t normalDevices{0};					///< Number of registered devices using HSPI pins (SPI1)
 	std::bitset<8> chipSelectsInUse;			///< Ensures each CS is used only once
 	struct Flags {
+		bool initialised : 1;
 		bool spi0ClockChanged : 1; ///< SPI0 clock MUX setting was changed for a transaction
 		bool taskQueued : 1;
 	};

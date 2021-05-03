@@ -28,10 +28,12 @@ volatile Controller::Stats Controller::stats;
 
 void Controller::begin()
 {
+	flags.initialised = true;
 }
 
 void Controller::end()
 {
+	flags.initialised = true;
 }
 
 #define FUNC(fmt, ...) debug_i("Controller::%s(" fmt ")", __FUNCTION__, __VA_ARGS__);
@@ -39,6 +41,12 @@ void Controller::end()
 bool Controller::startDevice(Device& dev, PinSet pinSet, uint8_t chipSelect)
 {
 	FUNC("%p, %u, %u", &dev, pinSet, chipSelect)
+
+	if(!flags.initialised) {
+		debug_e("SPI Controller not initialised");
+		return false;
+	}
+
 	dev.pinSet = pinSet;
 	dev.chipSelect = chipSelect;
 	return true;
@@ -70,6 +78,11 @@ uint32_t Controller::getSpeed(Device& dev) const
 void Controller::execute(Request& req)
 {
 	FUNC("%p", &req);
+
+	if(!flags.initialised || req.device == nullptr || req.device->pinSet == PinSet::none) {
+		debug_e("SPI device not initialised");
+		return;
+	}
 
 	assert(!req.busy);
 	assert(req.device != nullptr);

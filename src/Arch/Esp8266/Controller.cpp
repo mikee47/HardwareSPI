@@ -231,6 +231,10 @@ uint32_t calculateClock(uint32_t frequency, spi_dev_t::clock_t& clockReg)
 
 void Controller::begin()
 {
+	if(flags.initialised) {
+		return;
+	}
+
 	// Pinset and chip selects are device-dependent and not initialised here - see startPacket()
 
 	SPI0.slave.val &= ~0x000003FF; // Don't want interrupts from SPI0
@@ -255,6 +259,8 @@ void Controller::begin()
 
 	ETS_SPI_INTR_ATTACH(ets_isr_t(isr), this);
 	ETS_SPI_INTR_ENABLE();
+
+	flags.initialised = true;
 }
 
 void Controller::end()
@@ -266,12 +272,19 @@ void Controller::end()
 	SPI1.pin.cs1_dis = 1;
 	SPI1.pin.cs2_dis = 1;
 
+	flags.initialised = false;
+
 	// Check all devices have been released
 	assert(normalDevices == 0 && overlapDevices == 0);
 }
 
 bool Controller::startDevice(Device& dev, PinSet pinSet, uint8_t chipSelect)
 {
+	if(!flags.initialised) {
+		debug_e("SPI Controller not initialised");
+		return false;
+	}
+
 	if(dev.pinSet != PinSet::none) {
 		debug_e("SPI device already started at %u, CS #%u", unsigned(dev.pinSet), dev.chipSelect);
 		return false;
@@ -521,6 +534,11 @@ void Controller::updateConfig(Device& dev)
  */
 void Controller::execute(Request& req)
 {
+	if(!flags.initialised || req.device == nullptr || req.device->pinSet == PinSet::none) {
+		debug_e("SPI device not initialised");
+		return;
+	}
+
 	req.next = nullptr;
 	req.busy = true;
 
