@@ -756,6 +756,7 @@ void IRAM_ATTR Controller::nextTransaction()
 	if(selectDeviceCallback) {
 		selectDeviceCallback(dev.chipSelect, true);
 	}
+	dev.transferStarting(req);
 
 	spi_dev_t::user_t user{.val = cfg.reg.user};
 	spi_dev_t::user1_t user1{.val = cfg.reg.user1};

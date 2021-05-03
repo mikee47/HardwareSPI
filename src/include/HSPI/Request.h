@@ -51,13 +51,15 @@ struct Request {
 	uint8_t async : 1;			   ///< Set for asynchronous operation
 	uint8_t task : 1;			   ///< Controller will execute this request in task mode
 	volatile uint8_t busy : 1;	 ///< Request in progress
-	uint32_t addr{0};			   ///< Address value
-	uint8_t addrLen{0};			   ///< Address bits, 0 - 32
-	uint8_t dummyLen{0};		   ///< Dummy read bits between address and read data, 0 - 255
-	Data out;					   ///< Outgoing data
-	Data in;					   ///< Incoming data
-	Callback callback{nullptr};	///< Completion routine
-	void* param{nullptr};		   ///< User parameter
+	uint8_t reserved : 1;
+	uint8_t userFlags : 4;		///< Can use to mark specific requests, etc.
+	uint32_t addr{0};			///< Address value
+	uint8_t addrLen{0};			///< Address bits, 0 - 32
+	uint8_t dummyLen{0};		///< Dummy read bits between address and read data, 0 - 255
+	Data out;					///< Outgoing data
+	Data in;					///< Incoming data
+	Callback callback{nullptr}; ///< Completion routine
+	void* param{nullptr};		///< User parameter
 
 	Request() : async(false), task(false), busy(false)
 	{
