@@ -173,13 +173,32 @@ public:
 		controller.execute(request);
 	}
 
+	/**
+	 * @brief Set a callback to be invoked before a request is started, and when it has finished
+	 * @param callback Invoked in interrupt context, MUST be in IRAM
+	 */
+	void onTransfer(Callback callback)
+	{
+		transferCallback = callback;
+	}
+
 	Controller& controller;
 
 protected:
 	friend Controller;
 
+	void IRAM_ATTR transferStarting(Request& request)
+	{
+		if(transferCallback) {
+			transferCallback(request);
+		}
+	}
+
 	void IRAM_ATTR transferComplete(Request& request)
 	{
+		if(transferCallback) {
+			transferCallback(request);
+		}
 		if(request.callback) {
 			request.callback(request);
 		}
@@ -193,6 +212,7 @@ private:
 	BitOrder bitOrder{MSBFIRST};
 	ClockMode clockMode{};
 	IoMode ioMode{};
+	Callback transferCallback{nullptr};
 };
 
 } // namespace HSPI

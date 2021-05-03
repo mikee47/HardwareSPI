@@ -632,6 +632,11 @@ void IRAM_ATTR Controller::startRequest()
 	auto& dev = *req.device;
 	auto& cfg = dev.config;
 
+	if(selectDeviceCallback) {
+		selectDeviceCallback(dev.chipSelect, true);
+	}
+	dev.transferStarting(req);
+
 	trans.addr = req.addr;
 	trans.outOffset = 0;
 	trans.inOffset = 0;
@@ -752,10 +757,6 @@ void IRAM_ATTR Controller::nextTransaction()
 	auto& req = *trans.request;
 	auto& dev = *req.device;
 	auto& cfg = dev.config;
-
-	if(selectDeviceCallback) {
-		selectDeviceCallback(dev.chipSelect, true);
-	}
 
 	spi_dev_t::user_t user{.val = cfg.reg.user};
 	spi_dev_t::user1_t user1{.val = cfg.reg.user1};

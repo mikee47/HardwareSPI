@@ -35,7 +35,7 @@ struct Request;
  * @brief SPI completion callback routine
  * @ingroup hw_spi
  */
-typedef void (*Callback)(Request& request);
+using Callback = void (*)(Request& request);
 
 /**
  * @brief Defines an SPI Request Packet
