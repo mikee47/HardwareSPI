@@ -73,19 +73,6 @@ struct Request {
 	}
 
 	/**
-	 * @brief MUST call this first before attempting to re-use a request
-	 * @note If the request is already queued then this method will block until it's completed
-	 */
-	void prepare()
-	{
-		while(busy) {
-			;
-		}
-		busy = false;
-		task = false;
-	}
-
-	/**
 	 * @name Set value for command phase
 	 * @{
 	 */

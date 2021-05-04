@@ -586,15 +586,23 @@ void Controller::execute(Request& req)
 	}
 
 	// Block and poll
+	wait(req);
+}
+
+void Controller::wait(Request& request)
+{
+	if(request.busy) {
 #ifdef HSPI_ENABLE_STATS
-	CpuCycleTimer timer;
+		CpuCycleTimer timer;
 #endif
-	while(req.busy) {
-		isr(this);
+		ETS_SPI_INTR_DISABLE();
+		do {
+			isr(this);
+		} while(request.busy);
+#ifdef HSPI_ENABLE_STATS
+		stats.waitCycles += timer.elapsedTicks();
+#endif
 	}
-#ifdef HSPI_ENABLE_STATS
-	stats.waitCycles += timer.elapsedTicks();
-#endif
 }
 
 void IRAM_ATTR Controller::queueTask()

@@ -125,7 +125,7 @@ public:
 	void prepareWrite(HSPI::Request& req, uint32_t address) override
 	{
 		bool quad = (getIoMode() != IoMode::SPIHD);
-		req.prepare();
+		wait(req);
 		req.setCommand8(quad ? 0x38 : 0x02);
 		req.setAddress24(address);
 		req.dummyLen = 0;
@@ -134,7 +134,7 @@ public:
 	void prepareRead(HSPI::Request& req, uint32_t address) override
 	{
 		bool quad = (getIoMode() != IoMode::SPIHD);
-		req.prepare();
+		wait(req);
 		req.setCommand8(quad ? 0xEB : 0x0B);
 		req.setAddress24(address);
 		req.dummyLen = quad ? 6 : 8;

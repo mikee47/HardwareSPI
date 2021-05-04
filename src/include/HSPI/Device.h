@@ -182,6 +182,13 @@ public:
 		transferCallback = callback;
 	}
 
+	void wait(Request& request)
+	{
+		if(request.busy) {
+			controller.wait(request);
+		}
+	}
+
 	Controller& controller;
 
 protected:

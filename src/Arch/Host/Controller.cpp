@@ -122,6 +122,16 @@ void Controller::execute(Request& req)
 	}
 }
 
+void Controller::wait(Request& request)
+{
+	if(request.busy) {
+#ifdef HSPI_ENABLE_STATS
+		++stats.waitCycles;
+#endif
+		transactionDone();
+	}
+}
+
 void Controller::startRequest()
 {
 	trans.busy = true;

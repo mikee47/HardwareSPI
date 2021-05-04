@@ -162,7 +162,7 @@ public:
 
 	void prepareWrite(HSPI::Request& req, uint32_t address) override
 	{
-		req.prepare();
+		wait(req);
 		req.setCommand8(0x02); // Write
 		req.setAddress24(address);
 		req.dummyLen = 0;
@@ -170,7 +170,7 @@ public:
 
 	void prepareRead(HSPI::Request& req, uint32_t address) override
 	{
-		req.prepare();
+		wait(req);
 		req.setCommand8(0x03); // Read
 		req.setAddress24(address);
 		req.dummyLen = 8 / getBitsPerClock();

@@ -202,6 +202,8 @@ public:
 		return activePinSet;
 	}
 
+	void wait(Request& request);
+
 protected:
 	friend Device;
 
