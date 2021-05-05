@@ -894,34 +894,44 @@ void IRAM_ATTR Controller::transactionDone()
 	}
 
 	// Packet complete?
-	if(trans.inOffset >= req.in.length && trans.outOffset >= req.out.length) {
-		TESTPIN1_LOW();
-		trans.busy = false;
-		req.busy = false;
-#ifdef HSPI_ENABLE_STATS
-		++stats.requestCount;
-#endif
-		// Note next packet in chain before invoking callback
-		trans.request = req.next;
-		req.next = nullptr;
-		req.device->transferComplete(req);
-		// Start the next packet, if there is one
-		if(trans.request != nullptr) {
-			if(trans.request->task) {
-				ETS_SPI_INTR_DISABLE();
-				startRequest();
-				queueTask();
-			} else {
-				startRequest();
-				ETS_SPI_INTR_ENABLE();
-			}
-		} else if(flags.spi0ClockChanged) {
-			// All transfers have completed, set SPI0 clock back to full speed
-			SET_PERI_REG_MASK(PERIPHS_IO_MUX_CONF_U, SPI0_CLK_EQU_SYS_CLK);
-			flags.spi0ClockChanged = false;
-		}
-	} else {
+	if(trans.inOffset < req.in.length || trans.outOffset < req.out.length) {
+		// Nope, continue
 		nextTransaction();
+		return;
+	}
+
+	TESTPIN1_LOW();
+	trans.busy = false;
+	req.busy = false;
+#ifdef HSPI_ENABLE_STATS
+	++stats.requestCount;
+#endif
+
+	// Note next packet in chain and de-queue this one
+	trans.request = req.next;
+	req.next = nullptr;
+
+	if(!dev.transferComplete(req)) {
+		// Re-queue this packet
+		req.next = trans.request;
+		trans.request = &req;
+		req.busy = true;
+	}
+
+	// Feed the hardware
+	if(trans.request != nullptr) {
+		if(trans.request->task) {
+			ETS_SPI_INTR_DISABLE();
+			startRequest();
+			queueTask();
+		} else {
+			startRequest();
+			ETS_SPI_INTR_ENABLE();
+		}
+	} else if(flags.spi0ClockChanged) {
+		// All transfers have completed, set SPI0 clock back to full speed
+		SET_PERI_REG_MASK(PERIPHS_IO_MUX_CONF_U, SPI0_CLK_EQU_SYS_CLK);
+		flags.spi0ClockChanged = false;
 	}
 }
 

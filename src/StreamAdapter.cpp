@@ -168,13 +168,14 @@ unsigned StreamAdapter::readChunks()
 	return ret;
 } // namespace HSPI
 
-void IRAM_ATTR StreamAdapter::requestComplete(HSPI::Request& req)
+bool IRAM_ATTR StreamAdapter::requestComplete(HSPI::Request& req)
 {
 	auto self = static_cast<StreamAdapter*>(req.param);
 	if(!self->taskQueued) {
 		System.queueCallback([](void* param) { static_cast<StreamAdapter*>(param)->task(); }, self);
 		self->taskQueued = true;
 	}
+	return true;
 }
 
 } // namespace HSPI

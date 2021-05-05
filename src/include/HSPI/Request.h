@@ -33,9 +33,11 @@ struct Request;
 
 /**
  * @brief SPI completion callback routine
+ * @param request
+ * @retval bool Return true if request is finished, false to re-queue it immediately
  * @ingroup hw_spi
  */
-using Callback = void (*)(Request& request);
+using Callback = bool (*)(Request& request);
 
 /**
  * @brief Defines an SPI Request Packet

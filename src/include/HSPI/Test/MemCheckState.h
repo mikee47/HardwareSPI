@@ -111,8 +111,9 @@ private:
 
 	void readBlock()
 	{
-		auto callback = [](Request& request) {
+		auto callback = [](Request& request) -> bool {
 			System.queueCallback([](void* param) { static_cast<MemCheckState*>(param)->blockRead(); }, request.param);
+			return true;
 		};
 		device.read(reqRd, readAddr, readBuffer, bufSize, callback, this);
 	}

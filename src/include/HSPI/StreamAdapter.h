@@ -67,7 +67,7 @@ private:
 	bool writeChunk();
 	unsigned readChunks();
 	bool readChunk();
-	static void requestComplete(HSPI::Request& req);
+	static bool requestComplete(HSPI::Request& req);
 
 	MemoryDevice& device;
 	InterruptDelegate callback;

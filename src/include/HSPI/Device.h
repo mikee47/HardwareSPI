@@ -201,14 +201,17 @@ protected:
 		}
 	}
 
-	void IRAM_ATTR transferComplete(Request& request)
+	bool IRAM_ATTR transferComplete(Request& request)
 	{
-		if(transferCallback) {
-			transferCallback(request);
+		if(transferCallback && !transferCallback(request)) {
+			// Re-submit this request
+			return false;
 		}
-		if(request.callback) {
-			request.callback(request);
+		if(request.callback && !request.callback(request)) {
+			return false;
 		}
+		// All done with this request
+		return true;
 	}
 
 private:

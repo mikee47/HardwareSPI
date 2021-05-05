@@ -20,7 +20,17 @@ namespace HSPI
 namespace
 {
 SimpleTimer asyncTimer;
+
+void printRequest(Request& req)
+{
+	debug_d("req .cmd = 0x%04x, %u, .out = %p, %u; .in = %p, %u; .callback = %p, %p; async = %u", req.cmd, req.cmdLen,
+			req.out.get(), req.out.length, req.in.get(), req.in.length, req.callback, req.param, req.async);
+	if(req.out.length > 0) {
+		debug_hex(DBG, "OUT", req.out.get(), std::min(req.out.length, uint16_t(32)), -1, 32);
+	}
 }
+
+} // namespace
 
 #ifdef HSPI_ENABLE_STATS
 volatile Controller::Stats Controller::stats;
@@ -87,12 +97,6 @@ void Controller::execute(Request& req)
 	assert(!req.busy);
 	assert(req.device != nullptr);
 
-	debug_i("req .out = %p, %u; .in = %p, %u; .callback = %p, %p; async = %u", req.out.get(), req.out.length,
-			req.in.get(), req.in.length, req.callback, req.param, req.async);
-	if(req.out.length > 0) {
-		debug_hex(INFO, "OUT", req.out.get(), std::min(req.out.length, uint16_t(32)), -1, 32);
-	}
-
 	req.busy = true;
 
 	// Packet transfer already in progress?
@@ -150,13 +154,20 @@ void Controller::transactionDone()
 	while(trans.request != nullptr) {
 		auto& req = *trans.request;
 		auto& dev = *req.device;
+		printRequest(req);
 		if(selectDeviceCallback) {
 			selectDeviceCallback(dev.chipSelect, false);
 		}
 		trans.request = req.next;
 		req.next = nullptr;
 		req.busy = false;
-		dev.transferComplete(req);
+
+		if(!dev.transferComplete(req)) {
+			// Re-queue this packet
+			req.next = trans.request;
+			trans.request = &req;
+			req.busy = true;
+		}
 	}
 	trans.busy = false;
 };
