@@ -146,4 +146,23 @@ struct Request {
 	}
 };
 
+/**
+ * @brief Support function for fast request re-queuing
+ * @param head The current queue head
+ * @param request The request to append
+ * @retval Request* The new queue head
+ *
+ * Append a request back onto the queue.
+ *
+ * Don't just put it at the front of the queue though as it will block any other requests.
+ * So it goes at the end. BUT! we must preserve execution order for all requests for a given device,
+ * so any other requests for the same device must go after it.
+ *
+ * The easiest way to do this is to build two queues, one off the current request (A) and the other containing all other requests (B).
+ * We then append (A) to (B) and set the head to the start of (B).
+ * 
+ * This is kind of laborious but fast as it's just pointer manipulation.
+ */
+Request* reQueueRequest(Request* head, Request* request);
+
 } // namespace HSPI

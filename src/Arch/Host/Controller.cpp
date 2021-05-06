@@ -13,7 +13,7 @@
 #include <HSPI/Controller.h>
 #include <HSPI/Device.h>
 #include <debug_progmem.h>
-#include <Timer.h>
+#include <SimpleTimer.h>
 
 namespace HSPI
 {
@@ -38,6 +38,12 @@ volatile Controller::Stats Controller::stats;
 
 void Controller::begin()
 {
+	asyncTimer.initializeMs<1>(
+		[](void* param) {
+			auto spi = static_cast<Controller*>(param);
+			spi->transactionDone();
+		},
+		this);
 	flags.initialised = true;
 }
 
@@ -114,21 +120,16 @@ void Controller::execute(Request& req)
 	}
 
 	if(req.async) {
-		asyncTimer.initializeMs<10>(
-			[](void* param) {
-				auto spi = static_cast<Controller*>(param);
-				spi->transactionDone();
-			},
-			this);
-		asyncTimer.startOnce();
-	} else {
-		transactionDone();
+		asyncTimer.start();
+		return;
 	}
+
+	wait(req);
 }
 
 void Controller::wait(Request& request)
 {
-	if(request.busy) {
+	while(request.busy) {
 #ifdef HSPI_ENABLE_STATS
 		++stats.waitCycles;
 #endif
@@ -149,27 +150,30 @@ void Controller::startRequest()
 
 void Controller::transactionDone()
 {
-	asyncTimer.stop();
-
-	while(trans.request != nullptr) {
-		auto& req = *trans.request;
-		auto& dev = *req.device;
-		printRequest(req);
-		if(selectDeviceCallback) {
-			selectDeviceCallback(dev.chipSelect, false);
-		}
-		trans.request = req.next;
-		req.next = nullptr;
-		req.busy = false;
-
-		if(!dev.transferComplete(req)) {
-			// Re-queue this packet
-			req.next = trans.request;
-			trans.request = &req;
-			req.busy = true;
-		}
+	if(trans.request == nullptr) {
+		return;
 	}
-	trans.busy = false;
-};
+
+	auto& req = *trans.request;
+	auto& dev = *req.device;
+	printRequest(req);
+	if(selectDeviceCallback) {
+		selectDeviceCallback(dev.chipSelect, false);
+	}
+	trans.request = req.next;
+	req.next = nullptr;
+	req.busy = false;
+
+	if(dev.transferComplete(req)) {
+		if(trans.request == nullptr) {
+			trans.busy = false;
+			asyncTimer.stop();
+		}
+		return;
+	}
+
+	req.busy = true;
+	trans.request = reQueueRequest(trans.request, &req);
+}
 
 } // namespace HSPI

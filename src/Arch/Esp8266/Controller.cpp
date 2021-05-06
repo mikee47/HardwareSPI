@@ -912,9 +912,7 @@ void IRAM_ATTR Controller::transactionDone()
 	req.next = nullptr;
 
 	if(!dev.transferComplete(req)) {
-		// Re-queue this packet
-		req.next = trans.request;
-		trans.request = &req;
+		trans.request = reQueueRequest(trans.request, &req);
 		req.busy = true;
 	}
 
