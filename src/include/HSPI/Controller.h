@@ -179,11 +179,11 @@ public:
 
 #ifdef HSPI_ENABLE_STATS
 	struct Stats {
-		uint32_t requestCount;
-		uint32_t transCount;
-		uint32_t waitCycles;
-		uint32_t tasksQueued;
-		uint32_t tasksCancelled;
+		uint32_t requestCount;   ///< Completed requests
+		uint32_t transCount;	 ///< Completed SPI transactions
+		uint32_t waitCycles;	 ///< Total blocking CPU cycles
+		uint32_t tasksQueued;	///< Number of times task callback registered for async execution (no interrupts)
+		uint32_t tasksCancelled; ///< Tasks cancelled by blocking requests
 
 		void clear() volatile
 		{

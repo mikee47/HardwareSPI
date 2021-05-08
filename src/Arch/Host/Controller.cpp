@@ -10,16 +10,118 @@
  *
  */
 
+#include <hostlib/threads.h>
 #include <HSPI/Controller.h>
 #include <HSPI/Device.h>
 #include <debug_progmem.h>
-#include <SimpleTimer.h>
+#include <Platform/Timers.h>
+#include <cassert>
+
+#define ETS_SPI_INTR_ATTACH(func, arg) asyncThread.attach(func, arg)
+#define ETS_SPI_INTR_ENABLE() asyncThread.enable()
+#define ETS_SPI_INTR_DISABLE() asyncThread.disable()
 
 namespace HSPI
 {
 namespace
 {
-SimpleTimer asyncTimer;
+class AsyncThread : public CThread
+{
+public:
+	using Isr = void (*)(Controller* controller);
+
+	AsyncThread() : CThread("HSPI", 1)
+	{
+		execute();
+	}
+
+	void attach(Isr isr, Controller* controller)
+	{
+		auto cur = state;
+		setState(State::disabled);
+		this->isr = isr;
+		this->controller = controller;
+		setState(cur);
+	}
+
+	void enable()
+	{
+		setState(State::enabled);
+	}
+
+	void disable()
+	{
+		setState(State::disabled);
+	}
+
+	void terminate()
+	{
+		setState(State::terminating);
+		join();
+	}
+
+protected:
+	void* thread_routine() override
+	{
+		while(state != State::terminating) {
+			if(nextState != state) {
+				state = nextState;
+				continue;
+			}
+			if(state == State::disabled) {
+				sem.wait();
+				continue;
+			}
+			// msleep(1);
+			sched_yield();
+			if(nextState != State::enabled) {
+				continue;
+			}
+			// interrupt_begin();
+			isr(controller);
+			// interrupt_end();
+		}
+
+		return nullptr;
+	}
+
+private:
+	enum class State {
+		disabled,
+		enabled,
+		terminating,
+	};
+
+	void setState(State newState)
+	{
+		if(nextState == newState) {
+			return;
+		}
+
+		if(isCurrent()) {
+			state = nextState = newState;
+			return;
+		}
+
+		nextState = newState;
+
+		if(newState == State::disabled) {
+			while(state != newState) {
+				//
+			}
+		}
+
+		sem.post();
+	}
+
+	Isr isr;
+	Controller* controller;
+	CSemaphore sem; // Signals state change
+	volatile State state{};
+	volatile State nextState{};
+};
+
+AsyncThread asyncThread;
 
 void printRequest(Request& req)
 {
@@ -38,18 +140,16 @@ volatile Controller::Stats Controller::stats;
 
 void Controller::begin()
 {
-	asyncTimer.initializeMs<1>(
-		[](void* param) {
-			auto spi = static_cast<Controller*>(param);
-			spi->transactionDone();
-		},
-		this);
-	flags.initialised = true;
+	if(!flags.initialised) {
+		ETS_SPI_INTR_ATTACH(isr, this);
+		flags.initialised = true;
+	}
 }
 
 void Controller::end()
 {
-	flags.initialised = true;
+	ETS_SPI_INTR_DISABLE();
+	flags.initialised = false;
 }
 
 #define FUNC(fmt, ...) debug_i("Controller::%s(" fmt ")", __FUNCTION__, __VA_ARGS__);
@@ -106,6 +206,7 @@ void Controller::execute(Request& req)
 	req.busy = true;
 
 	// Packet transfer already in progress?
+	ETS_SPI_INTR_DISABLE();
 	if(trans.busy) {
 		// Tack new packet onto end of chain
 		auto pkt = trans.request;
@@ -120,7 +221,7 @@ void Controller::execute(Request& req)
 	}
 
 	if(req.async) {
-		asyncTimer.start();
+		ETS_SPI_INTR_ENABLE();
 		return;
 	}
 
@@ -129,12 +230,19 @@ void Controller::execute(Request& req)
 
 void Controller::wait(Request& request)
 {
-	while(request.busy) {
-#ifdef HSPI_ENABLE_STATS
-		++stats.waitCycles;
-#endif
-		transactionDone();
+	if(!request.busy) {
+		return;
 	}
+#ifdef HSPI_ENABLE_STATS
+	CpuCycleTimer timer;
+#endif
+	ETS_SPI_INTR_DISABLE();
+	do {
+		isr(this);
+	} while(request.busy);
+#ifdef HSPI_ENABLE_STATS
+	stats.waitCycles += timer.elapsedTicks();
+#endif
 }
 
 void Controller::startRequest()
@@ -148,32 +256,58 @@ void Controller::startRequest()
 	dev.transferStarting(req);
 }
 
+void Controller::isr(Controller* spi)
+{
+	spi->transactionDone();
+}
+
 void Controller::transactionDone()
 {
+	assert(trans.request != nullptr);
 	if(trans.request == nullptr) {
 		return;
 	}
 
 	auto& req = *trans.request;
 	auto& dev = *req.device;
+
+#ifdef HSPI_ENABLE_STATS
+	auto datalen = std::max(req.out.length, req.in.length);
+	auto datatrans = (datalen + SPI_BUFSIZE - 1) / SPI_BUFSIZE;
+	stats.transCount += std::max(1U, datatrans);
+#endif
+
 	printRequest(req);
 	if(selectDeviceCallback) {
 		selectDeviceCallback(dev.chipSelect, false);
 	}
+
+	trans.busy = false;
+	req.busy = false;
+#ifdef HSPI_ENABLE_STATS
+	++stats.requestCount;
+#endif
+
+	// Note next packet in chain and de-queue this one
 	trans.request = req.next;
 	req.next = nullptr;
-	req.busy = false;
 
-	if(dev.transferComplete(req)) {
-		if(trans.request == nullptr) {
-			trans.busy = false;
-			asyncTimer.stop();
-		}
-		return;
+#ifdef HSPI_ENABLE_STATS
+	++stats.requestCount;
+#endif
+
+	if(!dev.transferComplete(req)) {
+		trans.request = reQueueRequest(trans.request, &req);
+		req.busy = true;
 	}
 
-	req.busy = true;
-	trans.request = reQueueRequest(trans.request, &req);
+	// Feed the hardware
+	if(trans.request == nullptr) {
+		ETS_SPI_INTR_DISABLE();
+	} else {
+		startRequest();
+		ETS_SPI_INTR_ENABLE();
+	}
 }
 
 } // namespace HSPI
