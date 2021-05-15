@@ -850,7 +850,15 @@ void IRAM_ATTR Controller::transactionDone()
 	// Read incoming data
 	if(trans.inlen != 0) {
 		if(req.in.isPointer) {
-			memcpy(req.in.ptr8 + trans.inOffset, (const void*)SPI1.data_buf, ALIGNUP4(trans.inlen));
+			auto dst = req.in.ptr8 + trans.inOffset;
+			if(IS_ALIGNED(dst) && IS_ALIGNED(trans.inlen)) {
+				memcpy(dst, (const void*)SPI1.data_buf, trans.inlen);
+			} else {
+				auto len = ALIGNUP4(trans.inlen);
+				uint8_t buffer[len];
+				memcpy(buffer, (const void*)SPI1.data_buf, len);
+				memcpy(dst, buffer, trans.inlen);
+			}
 		} else {
 			req.in.data32 = SPI1.data_buf[0];
 		}
