@@ -99,6 +99,8 @@ class Device;
 class Controller
 {
 public:
+	static constexpr size_t hardwareBufferSize{64};
+
 	struct Config {
 		bool dirty{true}; ///< Set when values require updating
 		// Pre-calculated register values - see updateConfig()
