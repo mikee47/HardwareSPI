@@ -25,6 +25,7 @@
 #pragma once
 
 #include <cstdint>
+#include <sming_attr.h>
 
 namespace HSPI
 {
@@ -60,7 +61,7 @@ struct Data {
 	/**
 	 * @brief Reset to zero-length
 	 */
-	void clear()
+	__forceinline void clear()
 	{
 		data32 = 0;
 		length = 0;
@@ -72,7 +73,7 @@ struct Data {
 	 * @param data Location of data
 	 * @param count Number of bytes
 	 */
-	void set(const void* data, uint16_t count)
+	__forceinline void set(const void* data, uint16_t count)
 	{
 		cptr = data;
 		length = count;
@@ -94,7 +95,7 @@ struct Data {
 	 * @brief Set to single 8-bit value
 	 * @param data
 	 */
-	void set8(uint8_t data)
+	__forceinline void set8(uint8_t data)
 	{
 		set32(data, 1);
 	}
@@ -103,7 +104,7 @@ struct Data {
 	 * @brief Set to single 16-bit value
 	 * @param data
 	 */
-	void set16(uint16_t data)
+	__forceinline void set16(uint16_t data)
 	{
 		set32(data, 2);
 	}
@@ -113,7 +114,7 @@ struct Data {
 	 * @param data
 	 * @param len Length in bytes (1 - 4)
 	 */
-	void set32(uint32_t data, uint8_t len = 4)
+	__forceinline void set32(uint32_t data, uint8_t len = 4)
 	{
 		data32 = data;
 		length = len;

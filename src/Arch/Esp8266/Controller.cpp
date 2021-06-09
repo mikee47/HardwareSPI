@@ -552,8 +552,8 @@ void Controller::execute(Request& req)
 		//		req.task = true;
 	}
 
-	if(req.maxTransactionSize == 0 || req.maxTransactionSize > SPI_BUFSIZE) {
-		req.maxTransactionSize = SPI_BUFSIZE;
+	if(req.maxTransactionSize == 0 || req.maxTransactionSize > hardwareBufferSize) {
+		req.maxTransactionSize = hardwareBufferSize;
 	}
 
 	// Packet transfer already in progress?

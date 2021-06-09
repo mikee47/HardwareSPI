@@ -83,7 +83,7 @@ struct Request {
 	 * @param command
 	 * @param bitCount Length of command in bits
 	 */
-	void setCommand(uint16_t command, uint8_t bitCount)
+	__forceinline void setCommand(uint16_t command, uint8_t bitCount)
 	{
 		cmd = command;
 		cmdLen = bitCount;
@@ -93,7 +93,7 @@ struct Request {
 	 * @brief Set 8-bit command
 	 * @param command
 	 */
-	void setCommand8(uint8_t command)
+	__forceinline void setCommand8(uint8_t command)
 	{
 		setCommand(command, 8);
 	}
@@ -102,7 +102,7 @@ struct Request {
 	 * @brief Set 16-bit command
 	 * @param command
 	 */
-	void setCommand16(uint16_t command)
+	__forceinline void setCommand16(uint16_t command)
 	{
 		setCommand(command, 16);
 	}
@@ -118,7 +118,7 @@ struct Request {
 	 * @param address
 	 * @param bitCount Length of address in bits
 	 */
-	void setAddress(uint32_t address, uint8_t bitCount)
+	__forceinline void setAddress(uint32_t address, uint8_t bitCount)
 	{
 		addr = address;
 		addrLen = bitCount;
@@ -128,7 +128,7 @@ struct Request {
 	 * @brief Set 24-bit address
 	 * @param address
 	 */
-	void setAddress24(uint32_t address)
+	__forceinline void setAddress24(uint32_t address)
 	{
 		setAddress(address, 24);
 	}

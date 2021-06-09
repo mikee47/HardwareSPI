@@ -233,8 +233,6 @@ private:
 	};
 	Flags flags{};
 
-	static constexpr size_t SPI_BUFSIZE{64};
-
 	// State of the current transaction in progress
 	struct Transaction {
 		Request* request;   ///< The current request being executed
