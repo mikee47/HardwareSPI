@@ -25,6 +25,7 @@
 #pragma once
 
 #include "Data.h"
+#include <cstddef>
 
 namespace HSPI
 {
@@ -54,21 +55,21 @@ using Callback = bool (*)(Request& request);
  * @ingroup hw_spi
  */
 struct Request {
-	Device* device{nullptr};	   ///< Target device for this request
-	Request* next{nullptr};		   ///< Controller uses this to queue requests
-	uint16_t cmd{0};			   ///< Command value
-	uint8_t cmdLen{0};			   ///< Command bits, 0 - 16
-	uint8_t maxTransactionSize{0}; ///< Limit size of data in each transaction (excludes command/address/dummy)
-	uint8_t async : 1;			   ///< Set for asynchronous operation
-	uint8_t task : 1;			   ///< Controller will execute this request in task mode
-	volatile uint8_t busy : 1;	 ///< Request in progress
-	uint32_t addr{0};			   ///< Address value
-	uint8_t addrLen{0};			   ///< Address bits, 0 - 32
-	uint8_t dummyLen{0};		   ///< Dummy read bits between address and read data, 0 - 255
-	Data out;					   ///< Outgoing data
-	Data in;					   ///< Incoming data
-	Callback callback{nullptr};	///< Completion routine
-	void* param{nullptr};		   ///< User parameter
+	Device* device{nullptr};	  ///< Target device for this request
+	Request* next{nullptr};		  ///< Controller uses this to queue requests
+	uint16_t cmd{0};			  ///< Command value
+	uint8_t cmdLen{0};			  ///< Command bits, 0 - 16
+	uint8_t async : 1;			  ///< Set for asynchronous operation
+	uint8_t task : 1;			  ///< Controller will execute this request in task mode
+	volatile uint8_t busy : 1;	///< Request in progress
+	size_t maxTransactionSize{0}; ///< Limit size of data in each transaction (excludes command/address/dummy)
+	uint32_t addr{0};			  ///< Address value
+	uint8_t addrLen{0};			  ///< Address bits, 0 - 32
+	uint8_t dummyLen{0};		  ///< Dummy read bits between address and read data, 0 - 255
+	Data out;					  ///< Outgoing data
+	Data in;					  ///< Incoming data
+	Callback callback{nullptr};   ///< Completion routine
+	void* param{nullptr};		  ///< User parameter
 
 	Request() : async(false), task(false), busy(false)
 	{

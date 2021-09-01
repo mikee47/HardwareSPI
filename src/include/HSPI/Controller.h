@@ -8,6 +8,7 @@
  * This library is free software: you can redistribute it and/or modify it under the terms of the
  * GNU General Public License as published by the Free Software Foundation, version 3 or later.
  *
+ * 
  * This library is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY;
  * without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
  * See the GNU General Public License for more details.
@@ -87,9 +88,48 @@
 #include <bitset>
 #include "Common.h"
 
+#ifdef ARCH_ESP32
+#include <soc/soc_caps.h>
+struct spi_transaction_t;
+struct spi_device_t;
+#endif
+
 namespace HSPI
 {
 class Device;
+
+#ifdef ARCH_ESP32
+struct EspTransaction;
+#endif
+
+static constexpr uint8_t SPI_PIN_DEFAULT{0xff};
+
+/**
+ * @brief Identifies bus selection
+ */
+enum class SpiBus {
+	INVALID = 0,
+	MIN = 1,
+	SPI1 = 1,
+#ifdef ARCH_ESP32
+	SPI2 = 2,
+	SPI3 = 3,
+	MAX = SOC_SPI_PERIPH_NUM,
+	DEFAULT = SPI2,
+#else
+	DEFAULT = SPI1,
+#endif
+};
+
+/**
+ * @brief SPI pin connections
+ */
+struct SpiPins {
+	uint8_t sck{SPI_PIN_DEFAULT};
+	uint8_t miso{SPI_PIN_DEFAULT};
+	uint8_t mosi{SPI_PIN_DEFAULT};
+	uint8_t ss{SPI_PIN_DEFAULT};
+};
 
 /**
  * @brief Manages access to SPI hardware
@@ -99,9 +139,16 @@ class Device;
 class Controller
 {
 public:
+#ifdef ARCH_ESP32
+	static constexpr size_t hardwareBufferSize{4096 - 4}; // SPI_MAX_DMA_LEN
+#else
 	static constexpr size_t hardwareBufferSize{64};
+#endif
 
 	struct Config {
+#ifdef ARCH_ESP32
+		spi_device_t* handle;
+#else
 		bool dirty{true}; ///< Set when values require updating
 		// Pre-calculated register values - see updateConfig()
 		struct {
@@ -111,11 +158,12 @@ public:
 			uint32_t user{0};
 			uint32_t user1{0};
 		} reg;
+#endif
 	};
 
 	/**
 	 * @brief Interrupt callback for custom Controllers
-	 * @param chipSelect
+	 * @param chipSelect The value passed to `startDevice()`
 	 * @param active true when transaction is about to start, false when completed
 	 *
 	 * For manual CS (PinSet::manual) the actual CS GPIO must be asserted/de-asserted.
@@ -125,13 +173,19 @@ public:
 	 */
 	using SelectDevice = void (*)(uint8_t chipSelect, bool active);
 
-	virtual ~Controller()
+	Controller(SpiBus id = SpiBus::DEFAULT) : busId(id)
 	{
 	}
 
+	Controller(SpiBus id, SpiPins pins) : busId(id), pins(pins)
+	{
+	}
+
+	virtual ~Controller();
+
 	/* @brief Initialize the HSPI controller
 	 */
-	void begin();
+	bool begin();
 
 	/** @brief Disable HSPI controller
 	 * 	@note Reverts HSPI pins to GPIO and disables the controller
@@ -168,6 +222,26 @@ public:
 	 * Internally, we just set a flag and update the register values when required.
 	 */
 	void configChanged(Device& dev);
+
+	/**
+	 * @brief Get the active bus identifier
+	 *
+	 * On successful call to begin() returns actual bus in use.
+	 */
+	SpiBus getBusId() const
+	{
+		return busId;
+	}
+
+#ifdef ARCH_ESP32
+	/**
+	 * @brief Get the active ESP32 SPI host identifier
+	 */
+	uint8_t getHost() const
+	{
+		return unsigned(busId) - 1;
+	}
+#endif
 
 	/**
 	 * @brief Set the clock for a given frequency
@@ -212,6 +286,11 @@ protected:
 	virtual void execute(Request& request);
 
 private:
+#ifdef ARCH_ESP32
+	static void IRAM_ATTR pre_transfer_callback(spi_transaction_t* t);
+	static void IRAM_ATTR post_transfer_callback(spi_transaction_t* t);
+#endif
+
 	static void updateConfig(Device& dev);
 
 	void queueTask();
@@ -221,15 +300,21 @@ private:
 	static void isr(Controller* spi);
 	void transactionDone();
 
+	SpiBus busId;
+	SpiPins pins;
 	PinSet activePinSet{PinSet::none};
 	SelectDevice selectDeviceCallback{nullptr}; ///< Callback for custom controllers
-	uint8_t overlapDevices{0};					///< Number of registered devices using overlap pins (SPI0)
 	uint8_t normalDevices{0};					///< Number of registered devices using HSPI pins (SPI1)
-	std::bitset<8> chipSelectsInUse;			///< Ensures each CS is used only once
+#ifndef ARCH_ESP32
+	uint8_t overlapDevices{0};		 ///< Number of registered devices using overlap pins (SPI0)
+	std::bitset<8> chipSelectsInUse; ///< Ensures each CS is used only once
+#endif
 	struct Flags {
 		bool initialised : 1;
+#ifndef ARCH_ESP32
 		bool spi0ClockChanged : 1; ///< SPI0 clock MUX setting was changed for a transaction
 		bool taskQueued : 1;
+#endif
 	};
 	Flags flags{};
 
@@ -248,6 +333,9 @@ private:
 		uint32_t addrCmdMask; ///< In SDI/SQI modes this is combined with address
 	};
 	Transaction trans{};
+#ifdef ARCH_ESP32
+	EspTransaction* esp_trans{nullptr};
+#endif
 };
 
 } // namespace HSPI

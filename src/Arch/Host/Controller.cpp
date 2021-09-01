@@ -137,12 +137,18 @@ void printRequest(Request& req)
 volatile Controller::Stats Controller::stats;
 #endif
 
-void Controller::begin()
+Controller::~Controller()
+{
+}
+
+bool Controller::begin()
 {
 	if(!flags.initialised) {
 		ETS_SPI_INTR_ATTACH(isr, this);
 		flags.initialised = true;
 	}
+
+	return true;
 }
 
 void Controller::end()
