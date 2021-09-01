@@ -229,10 +229,14 @@ uint32_t calculateClock(uint32_t frequency, spi_dev_t::clock_t& clockReg)
 
 } // namespace
 
-void Controller::begin()
+~Controller::Controller()
+{
+}
+
+bool Controller::begin()
 {
 	if(flags.initialised) {
-		return;
+		return true;
 	}
 
 	// Pinset and chip selects are device-dependent and not initialised here - see startPacket()
@@ -261,6 +265,7 @@ void Controller::begin()
 	ETS_SPI_INTR_ENABLE();
 
 	flags.initialised = true;
+	return true;
 }
 
 void Controller::end()
@@ -502,8 +507,8 @@ void Controller::updateConfig(Device& dev)
 }
 
 /*
- * OK, so we have two versions of execute() to deal with single FIFO and multiple. For longer
- * transactions we have some options:
+ * Small requests are completed in a single transaction, as the data fits within the 64-byte FIFO.
+ * For long transactions we have some options:
  *
  * 	1. As at present, we repeat the operation. It's fine for addressed devices, but may not be for others.
  * 	2a. After the first iteration we set up an ISR to kick off subsequent transactions. We can add a flag
@@ -519,11 +524,6 @@ void Controller::updateConfig(Device& dev)
  *  Also bear in mind that once a transaction has been submitted to the hardware, it could be delayed by
  *  higher-priority flash accesses on SPI0. It would not cause blocking in the ISR though, as arbitration
  *  happens in hardware.
- *
- *  With the ESP32 we have both regular FIFO operation and the alternative DMA operation. In both cases
- *  a transaction is set up as usual, command, address, etc. with the only difference with the data
- *  transfer. It's not only faster but there's no interrupt overhead and the processor doesn't need
- *  to do any memory copies. The ESP32 can handle a single transfer of up to 4092 bytes.
  *
  *  It is likely we'll have a few well-defined ways to deal with this, and the caller can choose which is
  *  most appropriate for the application and hardware.
@@ -791,7 +791,7 @@ void IRAM_ATTR Controller::nextTransaction()
 	unsigned outlen = req.out.length - trans.outOffset;
 	if(outlen != 0) {
 		if(req.out.isPointer) {
-			outlen = std::min(outlen, size_t(req.maxTransactionSize));
+			outlen = std::min(outlen, req.maxTransactionSize);
 			memcpy((void*)SPI1.data_buf, req.out.ptr8 + trans.outOffset, ALIGNUP4(outlen));
 		} else {
 			SPI1.data_buf[0] = req.out.data32;
@@ -806,7 +806,7 @@ void IRAM_ATTR Controller::nextTransaction()
 	// Setup incoming data (MISO)
 	unsigned inlen = req.in.length - trans.inOffset;
 	if(inlen != 0) {
-		inlen = std::min(inlen, size_t(req.maxTransactionSize));
+		inlen = std::min(inlen, req.maxTransactionSize);
 		trans.inlen = inlen;
 		// In duplex mode data is read during MOSI stage
 		if(user.duplex) {
@@ -856,7 +856,7 @@ void IRAM_ATTR Controller::isr(Controller* spi)
 }
 
 /*
- * Read incoming data, if there is any, and start next transac/tion.
+ * Read incoming data, if there is any, and start next transaction.
  * Called from interrupt context at completion of transaction.
  */
 void IRAM_ATTR Controller::transactionDone()

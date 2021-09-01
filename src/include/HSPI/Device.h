@@ -55,6 +55,11 @@ public:
 		end();
 	}
 
+	/**
+	 * @brief Register device with controller and prepare for action
+	 * @param pinSet Use PinSet::normal for Esp32, other values for Esp8266
+	 * @param chipSelect Identifies the CS number for ESP8266, or the GPIO pin for ESP32
+	 */
 	bool begin(PinSet pinSet, uint8_t chipSelect)
 	{
 		return controller.startDevice(*this, pinSet, chipSelect);

@@ -137,6 +137,10 @@ void printRequest(Request& req)
 volatile Controller::Stats Controller::stats;
 #endif
 
+Controller::~Controller()
+{
+}
+
 void Controller::begin()
 {
 	if(!flags.initialised) {
