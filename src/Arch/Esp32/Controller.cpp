@@ -396,9 +396,7 @@ void IRAM_ATTR Controller::nextTransaction()
 #endif
 
 	// Execute now
-	auto err = spi_device_queue_trans(dev.config.handle, &t.base, portMAX_DELAY);
-	(void)err;
-	assert(err == ESP_OK);
+	spi_device_queue_trans_from_isr(dev.config.handle, &t.base);
 }
 
 /*
