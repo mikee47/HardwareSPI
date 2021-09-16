@@ -229,6 +229,12 @@ void Controller::execute(Request& req)
 	}
 
 	// Packet transfer already in progress?
+	/*
+	   Note: Interrupt needs to be disabled whilst updating the queue.
+	   This call does a bit more than that unfortunately.
+	   Calling portDISABLE_INTERRUPTS() doesn't do the job.
+	 */
+	spi_device_acquire_bus(req.device->config.handle, portMAX_DELAY);
 	if(trans.busy) {
 		// Tack new packet onto end of chain
 		auto pkt = trans.request;
@@ -241,6 +247,7 @@ void Controller::execute(Request& req)
 		trans.request = &req;
 		startRequest();
 	}
+	spi_device_release_bus(req.device->config.handle);
 
 	if(!req.async) {
 		// Block and poll
@@ -334,40 +341,49 @@ void IRAM_ATTR Controller::nextTransaction()
 	auto& cfg = dev.config;
 
 	auto& t = esp_trans->ext;
-	t.base.flags &= ~(SPI_TRANS_USE_TXDATA | SPI_TRANS_USE_RXDATA);
-	t.base.tx_buffer = nullptr;
-	t.base.rx_buffer = nullptr;
 
 	// Setup outgoing data (MOSI)
 	unsigned outlen = req.out.length - trans.outOffset;
 	if(outlen != 0) {
 		if(req.out.isPointer) {
 			outlen = std::min(outlen, req.maxTransactionSize);
-			t.base.tx_buffer = req.out.ptr8 + trans.outOffset;
+			auto outptr = req.out.ptr8 + trans.outOffset;
+			if(esp_ptr_dma_capable(outptr) && IS_ALIGNED(outptr)) {
+				t.base.tx_buffer = outptr;
+			} else {
+				memcpy(dmaBuffer, outptr, outlen);
+				t.base.tx_buffer = dmaBuffer;
+			}
 		} else {
-			memcpy(&t.base.tx_data, &req.out.data32, sizeof(uint32_t));
-			t.base.flags |= SPI_TRANS_USE_TXDATA;
+			dmaBuffer[0] = req.out.data32;
+			t.base.tx_buffer = dmaBuffer;
 		}
 		t.base.length = outlen * 8;
 		trans.outOffset += outlen;
 	} else {
+		t.base.tx_buffer = nullptr;
 		t.base.length = 0;
 	}
 
 	// Setup incoming data (MISO)
 	unsigned inlen = req.in.length - trans.inOffset;
 	if(inlen != 0) {
-		inlen = std::min(inlen, req.maxTransactionSize);
-		trans.inlen = inlen;
 		if(req.in.isPointer) {
-			auto dst = req.in.ptr8 + trans.inOffset;
-			t.base.rx_buffer = dst;
+			inlen = std::min(inlen, req.maxTransactionSize);
+			auto inptr = req.in.ptr8 + trans.inOffset;
+			if(esp_ptr_dma_capable(inptr) && IS_ALIGNED(inptr)) {
+				t.base.rx_buffer = inptr;
+			} else {
+				t.base.rx_buffer = dmaBuffer;
+			}
 		} else {
-			t.base.flags |= SPI_TRANS_USE_RXDATA;
+			t.base.rx_buffer = dmaBuffer;
 		}
+		trans.inlen = inlen;
 		t.base.rxlength = inlen * 8;
 		t.base.length = std::max(t.base.length, t.base.rxlength);
 	} else {
+		t.base.rx_buffer = nullptr;
 		t.base.rxlength = 0;
 	}
 
@@ -400,8 +416,12 @@ void IRAM_ATTR Controller::transactionDone()
 
 	// Read incoming data
 	if(trans.inlen != 0) {
-		if(!req.in.isPointer) {
-			memcpy(&req.in.data32, &esp_trans->ext.base.rx_data, sizeof(uint32_t));
+		if(esp_trans->ext.base.rx_buffer == dmaBuffer) {
+			if(req.in.isPointer) {
+				memcpy(req.in.ptr8 + trans.inOffset, dmaBuffer, trans.inlen);
+			} else {
+				req.in.data32 = dmaBuffer[0];
+			}
 		}
 		trans.inOffset += trans.inlen;
 		trans.inlen = 0;
@@ -420,12 +440,12 @@ void IRAM_ATTR Controller::transactionDone()
 	++stats.requestCount;
 #endif
 
-	// Note next packet in chain and de-queue this one
-	trans.request = req.next;
-	req.next = nullptr;
-
-	if(!dev.transferComplete(req)) {
-		trans.request = reQueueRequest(trans.request, &req);
+	if(dev.transferComplete(req)) {
+		// Note next packet in chain and de-queue this one
+		trans.request = req.next;
+		req.next = nullptr;
+	} else {
+		trans.request = reQueueRequest(req.next, &req);
 		req.busy = true;
 	}
 
