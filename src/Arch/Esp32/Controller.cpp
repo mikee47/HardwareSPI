@@ -60,7 +60,7 @@ bool Controller::begin()
 		.quadhd_io_num = -1,
 		.max_transfer_sz = 0, // Use default
 		.flags = 0,
-		.intr_flags = ESP_INTR_FLAG_IRAM,
+		.intr_flags = ESP_INTR_FLAG_LOWMED, // ESP_INTR_FLAG_IRAM,
 	};
 
 	auto err = spi_bus_initialize(spi_host_device_t(unsigned(busId) - 1), &buscfg, SPI_DMA_CH_AUTO);
