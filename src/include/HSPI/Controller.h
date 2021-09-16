@@ -269,6 +269,7 @@ private:
 #ifdef ARCH_ESP32
 	static void IRAM_ATTR pre_transfer_callback(spi_transaction_t* t);
 	static void IRAM_ATTR post_transfer_callback(spi_transaction_t* t);
+	void registerEventHandler(bool enable);
 #endif
 
 	static void updateConfig(Device& dev);
@@ -314,6 +315,7 @@ private:
 	};
 	Transaction trans{};
 #ifdef ARCH_ESP32
+	void* eventHandlerInstance{nullptr};
 	EspTransaction* esp_trans{nullptr};
 	uint32_t dmaBuffer[hardwareBufferSize / sizeof(uint32_t)];
 #endif

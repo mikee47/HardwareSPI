@@ -15,6 +15,7 @@
 #include <driver/spi_master.h>
 #include <esp_intr_alloc.h>
 #include <debug_progmem.h>
+#include <esp_event.h>
 
 namespace HSPI
 {
@@ -34,6 +35,13 @@ volatile Controller::Stats Controller::stats;
 #define DEFAULT_PIN_MOSI 7
 #define DEFAULT_PIN_SCLK 6
 #endif
+
+ESP_EVENT_DEFINE_BASE(HSPI_EVENT);
+
+enum HspiEvent {
+	HSPI_EVENT_START_REQUEST,
+	HSPI_EVENT_NEXT_TRANSACTION,
+};
 
 struct EspTransaction {
 	spi_transaction_ext_t ext;
@@ -72,6 +80,8 @@ bool Controller::begin()
 		esp_trans = new EspTransaction{};
 	}
 
+	registerEventHandler(true);
+
 	flags.initialised = true;
 	return true;
 }
@@ -82,10 +92,40 @@ void Controller::end()
 		return;
 	}
 
+	registerEventHandler(false);
+
 	flags.initialised = false;
 
 	// Check all devices have been released
 	assert(normalDevices == 0);
+}
+
+void Controller::registerEventHandler(bool enable)
+{
+	auto handler = [](void* arg, esp_event_base_t event_base, int32_t event_id, void* event_data) {
+		(void)event_base;
+		(void)event_id;
+		(void)event_data;
+		auto controller = static_cast<Controller*>(arg);
+		switch(event_id) {
+		case HSPI_EVENT_START_REQUEST:
+			controller->startRequest();
+			break;
+		case HSPI_EVENT_NEXT_TRANSACTION:
+			controller->nextTransaction();
+			break;
+		}
+	};
+
+	if(enable) {
+		esp_event_loop_create_default();
+		auto err =
+			esp_event_handler_instance_register(HSPI_EVENT, ESP_EVENT_ANY_ID, handler, this, &eventHandlerInstance);
+		ESP_ERROR_CHECK_WITHOUT_ABORT(err);
+	} else {
+		esp_event_handler_instance_unregister(HSPI_EVENT, ESP_EVENT_ANY_ID, eventHandlerInstance);
+		eventHandlerInstance = nullptr;
+	}
 }
 
 void IRAM_ATTR Controller::pre_transfer_callback(spi_transaction_t* t)
@@ -273,7 +313,7 @@ void Controller::wait(Request& request)
  * Start transfer of a new request (trans.request)
  * May be called from interrupt context at completion of previous request
  */
-void IRAM_ATTR Controller::startRequest()
+void Controller::startRequest()
 {
 	auto& req = *trans.request;
 	auto& dev = *req.device;
@@ -334,7 +374,7 @@ void IRAM_ATTR Controller::startRequest()
 	nextTransaction();
 }
 
-void IRAM_ATTR Controller::nextTransaction()
+void Controller::nextTransaction()
 {
 	auto& req = *trans.request;
 	auto& dev = *req.device;
@@ -396,7 +436,7 @@ void IRAM_ATTR Controller::nextTransaction()
 #endif
 
 	// Execute now
-	spi_device_queue_trans_from_isr(dev.config.handle, &t.base);
+	spi_device_queue_trans(dev.config.handle, &t.base, portMAX_DELAY);
 }
 
 /*
@@ -428,7 +468,7 @@ void IRAM_ATTR Controller::transactionDone()
 	// Packet complete?
 	if(trans.inOffset < req.in.length || trans.outOffset < req.out.length) {
 		// Nope, continue
-		nextTransaction();
+		esp_event_isr_post(HSPI_EVENT, HSPI_EVENT_NEXT_TRANSACTION, nullptr, 0, nullptr);
 		return;
 	}
 
@@ -449,7 +489,7 @@ void IRAM_ATTR Controller::transactionDone()
 
 	// Feed the hardware
 	if(trans.request != nullptr) {
-		startRequest();
+		esp_event_isr_post(HSPI_EVENT, HSPI_EVENT_START_REQUEST, nullptr, 0, nullptr);
 	}
 }
 
