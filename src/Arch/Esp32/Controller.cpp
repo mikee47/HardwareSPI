@@ -39,6 +39,7 @@ volatile Controller::Stats Controller::stats;
 ESP_EVENT_DEFINE_BASE(HSPI_EVENT);
 
 enum HspiEvent {
+	HSPI_EVENT_ADD_REQUEST,
 	HSPI_EVENT_START_REQUEST,
 	HSPI_EVENT_NEXT_TRANSACTION,
 };
@@ -68,7 +69,7 @@ bool Controller::begin()
 		.quadhd_io_num = -1,
 		.max_transfer_sz = 0, // Use default
 		.flags = 0,
-		.intr_flags = ESP_INTR_FLAG_LOWMED, // ESP_INTR_FLAG_IRAM,
+		.intr_flags = ESP_INTR_FLAG_IRAM,
 	};
 
 	auto err = spi_bus_initialize(spi_host_device_t(unsigned(busId) - 1), &buscfg, SPI_DMA_CH_AUTO);
@@ -108,6 +109,9 @@ void Controller::registerEventHandler(bool enable)
 		(void)event_data;
 		auto controller = static_cast<Controller*>(arg);
 		switch(event_id) {
+		case HSPI_EVENT_ADD_REQUEST:
+			controller->addRequest(**static_cast<Request**>(event_data));
+			break;
 		case HSPI_EVENT_START_REQUEST:
 			controller->startRequest();
 			break;
@@ -268,6 +272,17 @@ void Controller::execute(Request& req)
 		req.maxTransactionSize = hardwareBufferSize - (hardwareBufferSize % req.maxTransactionSize);
 	}
 
+	auto reqptr = &req;
+	esp_event_isr_post(HSPI_EVENT, HSPI_EVENT_ADD_REQUEST, &reqptr, sizeof(reqptr), nullptr);
+
+	if(!req.async) {
+		// Block and poll
+		wait(req);
+	}
+}
+
+void Controller::addRequest(Request& req)
+{
 	// Packet transfer already in progress?
 	/*
 	   Note: Interrupt needs to be disabled whilst updating the queue.
@@ -282,16 +297,12 @@ void Controller::execute(Request& req)
 			pkt = pkt->next;
 		}
 		pkt->next = &req;
+		spi_device_release_bus(req.device->config.handle);
 	} else {
 		// Not currently running, so do this one now
 		trans.request = &req;
+		spi_device_release_bus(req.device->config.handle);
 		startRequest();
-	}
-	spi_device_release_bus(req.device->config.handle);
-
-	if(!req.async) {
-		// Block and poll
-		wait(req);
 	}
 }
 

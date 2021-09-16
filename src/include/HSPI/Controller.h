@@ -270,6 +270,7 @@ private:
 	static void IRAM_ATTR pre_transfer_callback(spi_transaction_t* t);
 	static void IRAM_ATTR post_transfer_callback(spi_transaction_t* t);
 	void registerEventHandler(bool enable);
+	void addRequest(Request& request);
 #endif
 
 	static void updateConfig(Device& dev);
