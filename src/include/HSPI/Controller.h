@@ -335,6 +335,7 @@ private:
 	Transaction trans{};
 #ifdef ARCH_ESP32
 	EspTransaction* esp_trans{nullptr};
+	uint32_t dmaBuffer[hardwareBufferSize / sizeof(uint32_t)];
 #endif
 };
 
