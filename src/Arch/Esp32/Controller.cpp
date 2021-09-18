@@ -105,7 +105,7 @@ void IRAM_ATTR Controller::Controller::post_transfer_callback(spi_transaction_t*
 	self->transactionDone();
 }
 
-bool Controller::startDevice(Device& dev, PinSet pinSet, uint8_t chipSelect)
+bool Controller::startDevice(Device& dev, PinSet pinSet, uint8_t chipSelect, uint32_t clockSpeed)
 {
 	if(!flags.initialised) {
 		debug_e("SPI Controller not initialised");
@@ -124,7 +124,7 @@ bool Controller::startDevice(Device& dev, PinSet pinSet, uint8_t chipSelect)
 
 	spi_device_interface_config_t devcfg{
 		.mode = uint8_t(dev.getClockMode()),
-		.clock_speed_hz = int(dev.speed),
+		.clock_speed_hz = int(clockSpeed),
 		.spics_io_num = chipSelect,
 		.flags = 0,
 		.queue_size = 1,
@@ -182,17 +182,6 @@ void Controller::stopDevice(Device& dev)
 
 void Controller::configChanged(Device& dev)
 {
-}
-
-uint32_t Controller::setSpeed(Device& dev, uint32_t frequency)
-{
-	// Speed is pre-calculated by ESP32 driver, leave as requested
-	return frequency;
-}
-
-uint32_t Controller::getSpeed(Device& dev) const
-{
-	return dev.speed;
 }
 
 void Controller::updateConfig(Device& dev)

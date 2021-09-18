@@ -210,7 +210,7 @@ public:
 	 * Custom controllers should override this method to verify/configure chip selects,
 	 * and also provide a callback (via `onSelectDevice()`).
 	 */
-	virtual bool startDevice(Device& dev, PinSet pinSet, uint8_t chipSelect);
+	virtual bool startDevice(Device& dev, PinSet pinSet, uint8_t chipSelect, uint32_t clockSpeed);
 
 	/**
 	 * @brief Release CS for a device.
@@ -242,16 +242,6 @@ public:
 		return unsigned(busId) - 1;
 	}
 #endif
-
-	/**
-	 * @brief Set the clock for a given frequency
-	 * @param dev
-	 * @param frequency The requested clock frequency in Hz
-	 * @retval uint32_t The actual clock frequency selected
-	 */
-	uint32_t setSpeed(Device& dev, uint32_t frequency);
-
-	uint32_t getSpeed(Device& dev) const;
 
 #ifdef HSPI_ENABLE_STATS
 	struct Stats {

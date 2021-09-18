@@ -49,9 +49,9 @@ public:
 	/**
 	 * @brief Configure the RAM into a known operating mode
 	 */
-	bool begin(PinSet pinSet, uint8_t chipSelect)
+	bool begin(PinSet pinSet, uint8_t chipSelect, uint32_t clockSpeed)
 	{
-		if(!MemoryDevice::begin(pinSet, chipSelect)) {
+		if(!MemoryDevice::begin(pinSet, chipSelect, clockSpeed)) {
 			return false;
 		}
 

@@ -283,7 +283,7 @@ void Controller::end()
 	assert(normalDevices == 0 && overlapDevices == 0);
 }
 
-bool Controller::startDevice(Device& dev, PinSet pinSet, uint8_t chipSelect)
+bool Controller::startDevice(Device& dev, PinSet pinSet, uint8_t chipSelect, uint32_t clockSpeed)
 {
 	if(!flags.initialised) {
 		debug_e("SPI Controller not initialised");
@@ -342,6 +342,11 @@ bool Controller::startDevice(Device& dev, PinSet pinSet, uint8_t chipSelect)
 	chipSelectsInUse[chipSelect] = true;
 	dev.config.dirty = true;
 
+	// Calculate clock setting
+	spi_dev_t::clock_t reg;
+	dev.speed = calculateClock(clockSpeed, reg);
+	dev.config.reg.clock = reg.val;
+
 	debug_i("SPI pinSet %u, CS #%u acquired", unsigned(pinSet), chipSelect);
 	return true;
 }
@@ -398,19 +403,6 @@ void Controller::stopDevice(Device& dev)
 void Controller::configChanged(Device& dev)
 {
 	dev.config.dirty = true;
-}
-
-uint32_t Controller::setSpeed(Device& dev, uint32_t frequency)
-{
-	spi_dev_t::clock_t reg;
-	frequency = calculateClock(frequency, reg);
-	dev.config.reg.clock = reg.val;
-	return frequency;
-}
-
-uint32_t Controller::getSpeed(Device& dev) const
-{
-	return getClockFrequency(spi_dev_t::clock_t{.val = dev.config.reg.clock});
 }
 
 void Controller::updateConfig(Device& dev)

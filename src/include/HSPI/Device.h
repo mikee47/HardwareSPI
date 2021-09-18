@@ -46,8 +46,6 @@ class Device
 public:
 	Device(Controller& controller) : controller(controller)
 	{
-		// Set a default speed
-		setSpeed(1000000U);
 	}
 
 	virtual ~Device()
@@ -59,10 +57,11 @@ public:
 	 * @brief Register device with controller and prepare for action
 	 * @param pinSet Use PinSet::normal for Esp32, other values for Esp8266
 	 * @param chipSelect Identifies the CS number for ESP8266, or the GPIO pin for ESP32
+	 * @param clockSpeed Bus speed
 	 */
-	bool begin(PinSet pinSet, uint8_t chipSelect)
+	bool begin(PinSet pinSet, uint8_t chipSelect, uint32_t clockSpeed)
 	{
-		return controller.startDevice(*this, pinSet, chipSelect);
+		return controller.startDevice(*this, pinSet, chipSelect, clockSpeed);
 	}
 
 	void end()
@@ -89,17 +88,9 @@ public:
 		return chipSelect;
 	}
 
-	/** @brief Set maximum operating speed for device
-	 *  @param speed in Hz
-	 */
-	void setSpeed(uint32_t frequency)
+	uint32_t getSpeed() const
 	{
-		speed = controller.setSpeed(*this, frequency);
-	}
-
-	uint32_t getSpeed()
-	{
-		return controller.getSpeed(*this);
+		return speed;
 	}
 
 	/*
@@ -114,7 +105,7 @@ public:
 		}
 	}
 
-	BitOrder getBitOrder()
+	BitOrder getBitOrder() const
 	{
 		return bitOrder;
 	}

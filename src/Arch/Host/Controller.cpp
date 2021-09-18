@@ -159,7 +159,7 @@ void Controller::end()
 
 #define FUNC(fmt, ...) debug_i("Controller::%s(" fmt ")", __FUNCTION__, __VA_ARGS__);
 
-bool Controller::startDevice(Device& dev, PinSet pinSet, uint8_t chipSelect)
+bool Controller::startDevice(Device& dev, PinSet pinSet, uint8_t chipSelect, uint32_t clockSpeed)
 {
 	FUNC("%p, %u, %u", &dev, pinSet, chipSelect)
 
@@ -170,6 +170,7 @@ bool Controller::startDevice(Device& dev, PinSet pinSet, uint8_t chipSelect)
 
 	dev.pinSet = pinSet;
 	dev.chipSelect = chipSelect;
+	dev.speed = dev.config.reg.clock = clockSpeed;
 	return true;
 }
 
@@ -183,17 +184,6 @@ void Controller::stopDevice(Device& dev)
 void Controller::configChanged(Device& dev)
 {
 	dev.config.dirty = true;
-}
-
-uint32_t Controller::setSpeed(Device& dev, uint32_t frequency)
-{
-	dev.config.reg.clock = frequency;
-	return frequency;
-}
-
-uint32_t Controller::getSpeed(Device& dev) const
-{
-	return dev.config.reg.clock;
 }
 
 void Controller::execute(Request& req)
