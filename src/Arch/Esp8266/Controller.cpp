@@ -460,6 +460,9 @@ void Controller::updateConfig(Device& dev)
 	case IoMode::SPI:
 	case IoMode::SPIHD:
 		break;
+	case IoMode::SPI3WIRE:
+		reg.user.sio = true;
+		break;
 	case IoMode::SDI:
 	case IoMode::DIO:
 		reg.ctrl.fastrd_mode = true;

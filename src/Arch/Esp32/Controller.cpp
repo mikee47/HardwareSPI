@@ -50,16 +50,18 @@ Controller::~Controller()
 
 bool Controller::begin()
 {
-	auto getPin = [](int pin, uint8_t defaultPin) -> int { return (pin == SPI_PIN_DEFAULT) ? defaultPin : pin; };
-
+	auto getPin = [](uint8_t pin, uint8_t defaultPin) -> uint8_t {
+		return (pin == SPI_PIN_DEFAULT) ? defaultPin : pin;
+	};
 	pins.mosi = getPin(pins.mosi, DEFAULT_PIN_MOSI);
 	pins.miso = getPin(pins.miso, DEFAULT_PIN_MISO);
 	pins.sck = getPin(pins.sck, DEFAULT_PIN_SCLK);
 
+	auto getPinValue = [](uint8_t pin) -> int { return (pin == SPI_PIN_NONE) ? -1 : pin; };
 	spi_bus_config_t buscfg = {
-		.mosi_io_num = pins.mosi,
-		.miso_io_num = pins.miso,
-		.sclk_io_num = pins.sck,
+		.mosi_io_num = getPinValue(pins.mosi),
+		.miso_io_num = getPinValue(pins.miso),
+		.sclk_io_num = getPinValue(pins.sck),
 		.quadwp_io_num = -1,
 		.quadhd_io_num = -1,
 		.max_transfer_sz = 0, // Use default
@@ -134,6 +136,8 @@ bool Controller::startDevice(Device& dev, PinSet pinSet, uint8_t chipSelect, uin
 	auto ioMode = dev.getIoMode();
 	if(ioMode == IoMode::SPI) {
 		devcfg.flags |= SPI_DEVICE_HALFDUPLEX;
+	} else if(ioMode == IoMode::SPI3WIRE) {
+		devcfg.flags |= SPI_DEVICE_HALFDUPLEX | SPI_DEVICE_3WIRE;
 	}
 
 	auto err = spi_bus_add_device(spi_host_device_t(unsigned(busId) - 1), &devcfg, &dev.config.handle);
@@ -292,6 +296,7 @@ void IRAM_ATTR Controller::startRequest()
 	switch(trans.ioMode) {
 	case IoMode::SPI:
 	case IoMode::SPIHD:
+	case IoMode::SPI3WIRE:
 		break;
 	case IoMode::SDI:
 	case IoMode::DIO:

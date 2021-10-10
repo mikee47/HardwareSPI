@@ -46,14 +46,15 @@ enum class ClockMode : uint8_t {
  * @brief Mode of data transfer
  */
 enum class IoMode : uint8_t {
-	SPI,   ///< One bit per clock, MISO stage concurrent with MISO (full-duplex)
-	SPIHD, ///< One bit per clock, MISO stage follows MOSI (half-duplex)
-	DUAL,  ///< Two bits per clock for Data, 1-bit for Command and Address
-	DIO,   ///< Two bits per clock for Address and Data, 1-bit for Command
-	SDI,   ///< Two bits per clock for Command, Address and Data
-	QUAD,  ///< Four bits per clock  for Data, 1-bit for Command and Address
-	QIO,   ///< Four bits per clock for Address and Data, 1-bit for Command
-	SQI,   ///< Four bits per clock for Command, Address and Data
+	SPI,	  ///< One bit per clock, MISO stage concurrent with MISO (full-duplex)
+	SPIHD,	///< One bit per clock, MISO stage follows MOSI (half-duplex)
+	SPI3WIRE, ///< Half-duplex using MOSI for both sending and receiving data
+	DUAL,	 ///< Two bits per clock for Data, 1-bit for Command and Address
+	DIO,	  ///< Two bits per clock for Address and Data, 1-bit for Command
+	SDI,	  ///< Two bits per clock for Command, Address and Data
+	QUAD,	 ///< Four bits per clock  for Data, 1-bit for Command and Address
+	QIO,	  ///< Four bits per clock for Address and Data, 1-bit for Command
+	SQI,	  ///< Four bits per clock for Command, Address and Data
 };
 
 using IoModes = BitSet<uint8_t, IoMode>;
@@ -71,6 +72,7 @@ inline constexpr IoModes operator|(IoMode a, IoMode b)
 #define HSPI_IOMODE_MAP(XX)                                                                                            \
 	XX(SPI, 1, 1, 1, true)                                                                                             \
 	XX(SPIHD, 1, 1, 1, false)                                                                                          \
+	XX(SPI3WIRE, 1, 1, 1, false)                                                                                       \
 	XX(DUAL, 1, 1, 2, false)                                                                                           \
 	XX(DIO, 1, 2, 2, false)                                                                                            \
 	XX(SDI, 2, 2, 2, false)                                                                                            \

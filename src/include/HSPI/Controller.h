@@ -102,7 +102,8 @@ class Device;
 struct EspTransaction;
 #endif
 
-static constexpr uint8_t SPI_PIN_DEFAULT{0xff};
+static constexpr uint8_t SPI_PIN_NONE{0xff};
+static constexpr uint8_t SPI_PIN_DEFAULT{0xfe};
 
 /**
  * @brief Identifies bus selection

@@ -229,6 +229,7 @@ the command, address and data phases are transferred:
    =======     =======     =======     ====     ======
    SPI         1           1           1        Full
    SPIHD       1           1           1        Half
+   SPI3WIRE    1           1           1        Half
    DUAL        1           1           2        Half
    DIO         1           2           2        Half
    SDI         2           2           2        Half
@@ -239,8 +240,8 @@ the command, address and data phases are transferred:
 
 .. note::
 
-   SDI and SQI are not supported directly by hardware, but is implemented within the driver using the data phase only.
-   For 8-bit command and 24-bit address, this limits each transaction to 60 bytes.
+   SDI and SQI are not supported directly by hardware, but is implemented within the driver using the address phase.
+   In these modes, commands are limited to 8 bits.
 
    This seems to be consistent with the ESP32 IDF driver, as in ``spi_ll.h``::
    
