@@ -1,4 +1,4 @@
-/**
+/****
  * Common.h - Architecture-independent definitions
  *
  * Copyright 2018 mikee47 <mike@sillyhouse.net>
@@ -17,7 +17,7 @@
  *
  * @author: 11 December 2018 - mikee47 <mike@sillyhouse.net>
  *
- */
+ ****/
 
 #pragma once
 

@@ -1,4 +1,4 @@
-/**
+/****
  * Controller.h
  *
  * Copyright 2018 mikee47 <mike@sillyhouse.net>
@@ -78,7 +78,7 @@
  * The ESP32 Technical Reference manual gives a very useful insight into how the two SPI
  * devices work together, as the hardware appears largely similar.
  *
- */
+ ****/
 
 #pragma once
 

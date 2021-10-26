@@ -1,4 +1,4 @@
-/**
+/****
  * Data.h
  *
  * Copyright 2018 mikee47 <mike@sillyhouse.net>
@@ -20,7 +20,7 @@
  * Definitions for an SPI Request Packet containing data and settings for a transfer.
  * A single transfer may use 1 or more transactions.
  *
- */
+ ****/
 
 #pragma once
 

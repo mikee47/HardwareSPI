@@ -1,4 +1,4 @@
-/**
+/****
  * Device.h
  *
  * Copyright 2018 mikee47 <mike@sillyhouse.net>
@@ -28,7 +28,7 @@
  * 	- Chip select: Automatic (CS2) which is mandatory for SPI0, or manual
  *
  * Device classes may be defined to add specific functionality, such as mode switching.
-*/
+ ****/
 
 #pragma once
 
