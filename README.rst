@@ -278,10 +278,10 @@ API
 .. doxygenenum:: HSPI::IoMode
 .. doxygenenum:: HSPI::PinSet
 
-.. doxygenclass:: HSPI::Request
+.. doxygenstruct:: HSPI::Request
    :members:
 
-.. doxygenclass:: HSPI::Data
+.. doxygenstruct:: HSPI::Data
    :members:
 
 .. doxygenclass:: HSPI::Device
@@ -290,8 +290,8 @@ API
 .. doxygenclass:: HSPI::MemoryDevice
    :members:
 
-.. doxygenclass:: HSPI::SpiRam
-   :members:
+.. doxygenclass:: HSPI::RAM::PSRAM64
+.. doxygenclass:: HSPI::RAM::IS62_65
 
 .. doxygenclass:: HSPI::Controller
    :members:

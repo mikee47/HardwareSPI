@@ -1,3 +1,4 @@
+COMPONENT_SOC := esp* host
 COMPONENT_INCDIRS = src/include
 COMPONENT_SRCDIRS = src src/Arch/$(SMING_ARCH)
 COMPONENT_DOXYGEN_INPUT = src/include
