@@ -20,6 +20,7 @@
 #define ETS_SPI_INTR_ATTACH(func, arg) asyncThread.attach(func, arg)
 #define ETS_SPI_INTR_ENABLE() asyncThread.enable()
 #define ETS_SPI_INTR_DISABLE() asyncThread.disable()
+#define SPI_BUFSIZE 64U
 
 namespace HSPI
 {

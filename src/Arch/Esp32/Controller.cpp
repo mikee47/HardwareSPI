@@ -14,6 +14,7 @@
 #include <HSPI/Device.h>
 #include <driver/spi_master.h>
 #include <esp_intr_alloc.h>
+#include <Platform/Timers.h>
 #include <debug_progmem.h>
 
 namespace HSPI
