@@ -22,19 +22,19 @@ namespace HSPI
 #ifdef HSPI_ENABLE_STATS
 volatile Controller::Stats Controller::stats;
 #endif
-#ifdef SUBARCH_ESP32
+#ifdef SOC_ESP32
 #define DEFAULT_PIN_MISO 25
 #define DEFAULT_PIN_MOSI 23
 #define DEFAULT_PIN_SCLK 19
-#elif defined(SUBARCH_ESP32S2)
+#elif defined(SOC_ESP32S2)
 #define DEFAULT_PIN_MISO 37
 #define DEFAULT_PIN_MOSI 35
 #define DEFAULT_PIN_SCLK 36
-#elif defined(SUBARCH_ESP32C3)
+#elif defined(SOC_ESP32C3)
 #define DEFAULT_PIN_MISO 2
 #define DEFAULT_PIN_MOSI 7
 #define DEFAULT_PIN_SCLK 6
-#elif defined(SUBARCH_ESP32S3)
+#elif defined(SOC_ESP32S3)
 #define DEFAULT_PIN_MISO 13
 #define DEFAULT_PIN_MOSI 11
 #define DEFAULT_PIN_SCLK 12
