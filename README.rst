@@ -47,7 +47,7 @@ SPI system expansion
 A primary use-case for this driver is to provide additional resources for the ESP8266 using SPI devices such as:
 
 -  MC23S017 SPI bus expander. Operates at 10MHz (regular SPI) and provides 16 additional I/O with interrupt capability.
--  High-speed shift registers. These can be wired directly to SPI busses to expand GPIO capability.
+-  High-speed shift registers. These can be wired directly to SPI buses to expand GPIO capability.
 -  Epson S1D13781 display controller.  See :library:`TFT_S1D13781`.
    Evaluation boards are inexpensive and is a useful way to evaluate display modules with TFT interfaces.
    The `Newhaven NHD-5.0-800480TF-ATXL#-CTP <https://www.newhavendisplay.com/nhd50800480tfatxlctp-p-6062.html>`__
