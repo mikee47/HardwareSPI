@@ -222,21 +222,21 @@ IO Modes
 Not to be confused with :cpp:enum:`HSPI::ClockMode`, the :cpp:enum:`HSPI::IoMode` determines how
 the command, address and data phases are transferred:
 
-   =======     =======     =======     ====     ======
-   .                   Bits per clock           .
-   -------     ----------------------------     ------
-   IO Mode     Command     Address     Data     Duplex
-   =======     =======     =======     ====     ======
-   SPI         1           1           1        Full
-   SPIHD       1           1           1        Half
-   SPI3WIRE    1           1           1        Half
-   DUAL        1           1           2        Half
-   DIO         1           2           2        Half
-   SDI         2           2           2        Half
-   QUAD        1           1           4        Half
-   QIO         1           4           4        Half
-   SQI         4           4           4        Half
-   =======     =======     =======     ====     ======
+   ========     =======     =======     ====     ======
+   .                   Bits per clock            .
+   --------     ----------------------------     ------
+   IO Mode      Command     Address     Data     Duplex
+   ========     =======     =======     ====     ======
+   SPI          1           1           1        Full
+   SPIHD        1           1           1        Half
+   SPI3WIRE     1           1           1        Half
+   DUAL         1           1           2        Half
+   DIO          1           2           2        Half
+   SDI          2           2           2        Half
+   QUAD         1           1           4        Half
+   QIO          1           4           4        Half
+   SQI          4           4           4        Half
+   ========     =======     =======     ====     ======
 
 .. note::
 
@@ -265,7 +265,7 @@ Streaming
 The :cpp:class:`HSPI::StreamAdapter` provides support for streaming of data to/from memory devices.
 
 This would be used, for example, to transfer content to or from a :cpp:class:`FileStream`
-or :cpp:class:`FlashMemoryStream` to SPI RAM asynchronously.
+or :cpp:type:`FlashMemoryStream` to SPI RAM asynchronously.
 
 Supported devices must inherit from :cpp:class:`HSPI::MemoryDevice`.
 
