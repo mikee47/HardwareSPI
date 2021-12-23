@@ -34,24 +34,22 @@ class MemoryDevice : public Device
 public:
 	using Device::Device;
 
+	virtual size_t getSize() const = 0;
+
 	/**
 	  * @name Prepare a write request
 	  * @{
 	  */
 
-	virtual size_t getSize() const = 0;
-
 	/**
-	 * @param request
-	 * @param address
+	 * @brief Prepare request without data
 	 */
 	virtual void prepareWrite(HSPI::Request& req, uint32_t address) = 0;
 
 	/**
-	 * @param request
-	 * @param address
-	 * @param data
-	 * @param len
+	 * @brief Prepare request with data
+	 * @param data Data to send
+	 * @param len Size of data in bytes
 	 */
 	void prepareWrite(HSPI::Request& req, uint32_t address, const void* data, size_t len)
 	{
@@ -148,16 +146,14 @@ public:
 	  */
 
 	/**
-	 * @param req
-	 * @param address
+	 * @brief Prepare without buffer
 	 */
 	virtual void prepareRead(HSPI::Request& req, uint32_t address) = 0;
 
 	/**
-	 * @param req
-	 * @param address
-	 * @param data
-	 * @param len
+	 * @brief Prepare with buffer
+	 * @param buffer Where to write incoming data
+	 * @param len Size of buffer
 	 */
 	void prepareRead(HSPI::Request& req, uint32_t address, void* buffer, size_t len)
 	{
