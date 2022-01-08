@@ -46,6 +46,7 @@ struct EspTransaction {
 
 Controller::~Controller()
 {
+	end();
 	delete esp_trans;
 }
 

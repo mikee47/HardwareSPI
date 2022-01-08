@@ -231,6 +231,7 @@ uint32_t calculateClock(uint32_t frequency, spi_dev_t::clock_t& clockReg)
 
 Controller::~Controller()
 {
+	end();
 }
 
 bool Controller::begin()

@@ -140,6 +140,7 @@ volatile Controller::Stats Controller::stats;
 
 Controller::~Controller()
 {
+	end();
 }
 
 bool Controller::begin()
