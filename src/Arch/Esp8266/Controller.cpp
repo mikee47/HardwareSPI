@@ -548,10 +548,6 @@ void Controller::execute(Request& req)
 		//		req.task = true;
 	}
 
-	if(req.maxTransactionSize == 0 || req.maxTransactionSize > hardwareBufferSize) {
-		req.maxTransactionSize = hardwareBufferSize;
-	}
-
 	// Packet transfer already in progress?
 	ETS_SPI_INTR_DISABLE();
 	if(trans.busy) {
@@ -783,11 +779,19 @@ void IRAM_ATTR Controller::nextTransaction()
 	spi_dev_t::user_t user{.val = cfg.reg.user};
 	spi_dev_t::user1_t user1{.val = cfg.reg.user1};
 
+	// If there's too much data to fit in a single transaction, trim it down
+	auto sizeAlign = [&](size_t len) {
+		if(len <= hardwareBufferSize || req.sizeAlign <= 1) {
+			return len;
+		}
+		return hardwareBufferSize - len % req.sizeAlign;
+	};
+
 	// Setup outgoing data (MOSI)
 	unsigned outlen = req.out.length - trans.outOffset;
 	if(outlen != 0) {
 		if(req.out.isPointer) {
-			outlen = std::min(outlen, req.maxTransactionSize);
+			outlen = sizeAlign(outlen);
 			memcpy((void*)SPI1.data_buf, req.out.ptr8 + trans.outOffset, ALIGNUP4(outlen));
 		} else {
 			SPI1.data_buf[0] = req.out.data32;
@@ -802,7 +806,7 @@ void IRAM_ATTR Controller::nextTransaction()
 	// Setup incoming data (MISO)
 	unsigned inlen = req.in.length - trans.inOffset;
 	if(inlen != 0) {
-		inlen = std::min(inlen, req.maxTransactionSize);
+		inlen = sizeAlign(inlen);
 		trans.inlen = inlen;
 		// In duplex mode data is read during MOSI stage
 		if(user.duplex) {

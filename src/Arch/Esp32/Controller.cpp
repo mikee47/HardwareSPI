@@ -219,12 +219,6 @@ void Controller::execute(Request& req)
 	req.next = nullptr;
 	req.busy = true;
 
-	if(req.maxTransactionSize == 0 || req.maxTransactionSize > hardwareBufferSize) {
-		req.maxTransactionSize = hardwareBufferSize;
-	} else {
-		req.maxTransactionSize = hardwareBufferSize - (hardwareBufferSize % req.maxTransactionSize);
-	}
-
 	// Packet transfer already in progress?
 	/*
 	   Note: Interrupt needs to be disabled whilst updating the queue.
@@ -339,11 +333,19 @@ void IRAM_ATTR Controller::nextTransaction()
 
 	auto& t = esp_trans->ext;
 
+	// If there's too much data to fit in a single transaction, trim it down
+	auto sizeAlign = [&](size_t len) {
+		if(len <= hardwareBufferSize || req.sizeAlign <= 1) {
+			return len;
+		}
+		return hardwareBufferSize - len % req.sizeAlign;
+	};
+
 	// Setup outgoing data (MOSI)
 	unsigned outlen = req.out.length - trans.outOffset;
 	if(outlen != 0) {
 		if(req.out.isPointer) {
-			outlen = std::min(outlen, req.maxTransactionSize);
+			outlen = sizeAlign(outlen);
 			auto outptr = req.out.ptr8 + trans.outOffset;
 			if(esp_ptr_dma_capable(outptr) && IS_ALIGNED(outptr)) {
 				t.base.tx_buffer = outptr;
@@ -366,7 +368,7 @@ void IRAM_ATTR Controller::nextTransaction()
 	unsigned inlen = req.in.length - trans.inOffset;
 	if(inlen != 0) {
 		if(req.in.isPointer) {
-			inlen = std::min(inlen, req.maxTransactionSize);
+			inlen = sizeAlign(inlen);
 			auto inptr = req.in.ptr8 + trans.inOffset;
 			if(esp_ptr_dma_capable(inptr) && IS_ALIGNED(inptr)) {
 				t.base.rx_buffer = inptr;

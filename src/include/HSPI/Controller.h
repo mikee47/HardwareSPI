@@ -311,11 +311,15 @@ private:
 
 	// State of the current transaction in progress
 	struct Transaction {
-		Request* request;   ///< The current request being executed
+		Request* request; ///< The current request being executed
+#ifdef ARCH_RP2040
+		// RP2040 doesn't have a restriction on transaction size, so doesn't need to split requests
+#else
 		uint32_t addr;		///< Address for next transfer
 		uint16_t outOffset; ///< Where to read data for next outgoing transfer
 		uint16_t inOffset;  ///< Where to write incoming data from current transfer
 		uint8_t inlen;		///< Incoming data for current transfer
+#endif
 		IoMode ioMode;
 		// Flags
 		uint8_t bitOrder : 1;
