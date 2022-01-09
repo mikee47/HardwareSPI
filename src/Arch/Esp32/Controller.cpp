@@ -13,6 +13,7 @@
 #include <HSPI/Controller.h>
 #include <HSPI/Device.h>
 #include <driver/spi_master.h>
+#include <soc/spi_periph.h>
 #include <esp_intr_alloc.h>
 #include <Platform/Timers.h>
 #include <debug_progmem.h>
@@ -450,6 +451,17 @@ void IRAM_ATTR Controller::transactionDone()
 	if(trans.request != nullptr) {
 		startRequest();
 	}
+}
+
+bool Controller::loopback(bool enable)
+{
+	if(!flags.initialised) {
+		return false;
+	}
+
+	auto& sig = spi_periph_signal[unsigned(busId) - 1];
+	gpio_matrix_in(enable ? pins.mosi : pins.miso, sig.spiq_in, false);
+	return true;
 }
 
 } // namespace HSPI

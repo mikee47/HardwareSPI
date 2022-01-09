@@ -271,6 +271,13 @@ public:
 
 	void wait(Request& request);
 
+	/**
+	 * @brief For testing, tie MISO <-> MOSI internally
+	 * @brief enable true to enable loopback, false for normal receive operation
+	 * @retval true on success, false if loopback not supported
+	 */
+	bool loopback(bool enable);
+
 protected:
 	friend Device;
 

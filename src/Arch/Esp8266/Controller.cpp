@@ -933,4 +933,10 @@ void IRAM_ATTR Controller::transactionDone()
 	}
 }
 
+bool Controller::loopback(bool enable)
+{
+	(void)enable;
+	return false;
+}
+
 } // namespace HSPI
