@@ -23,6 +23,7 @@
 
 #include <WString.h>
 #include <Data/BitSet.h>
+#include "version.h"
 
 /**
  * @defgroup hw_spi SPI Hardware support
