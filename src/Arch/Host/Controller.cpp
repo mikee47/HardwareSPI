@@ -26,32 +26,19 @@
 #include <Platform/Timers.h>
 #include <cassert>
 
-#define ETS_SPI_INTR_ATTACH(func, arg) asyncThread.attach(func, arg)
-#define ETS_SPI_INTR_ENABLE() asyncThread.enable()
-#define ETS_SPI_INTR_DISABLE() asyncThread.disable()
-#define SPI_BUFSIZE 64U
+#define enableInterrupts() thread->enable()
+#define disableInterrupts() thread->disable()
+
+static constexpr size_t hardwareBufferSize{64};
 
 namespace HSPI
-{
-namespace
 {
 class AsyncThread : public CThread
 {
 public:
-	using Isr = void (*)(Controller* controller);
-
-	AsyncThread() : CThread("HSPI", 1)
+	AsyncThread(Delegate<void()> isr) : CThread("HSPI", 1), isr(isr)
 	{
 		execute();
-	}
-
-	void attach(Isr isr, Controller* controller)
-	{
-		auto cur = state;
-		setState(State::disabled);
-		this->isr = isr;
-		this->controller = controller;
-		setState(cur);
 	}
 
 	void enable()
@@ -82,14 +69,10 @@ protected:
 				sem.wait();
 				continue;
 			}
-			// msleep(1);
 			sched_yield();
-			if(nextState != State::enabled) {
-				continue;
+			if(state == State::enabled) {
+				isr();
 			}
-			// interrupt_begin();
-			isr(controller);
-			// interrupt_end();
 		}
 
 		return nullptr;
@@ -114,24 +97,26 @@ private:
 		}
 
 		nextState = newState;
+		sched_yield();
 
-		if(newState == State::disabled) {
+		if(newState != State::disabled) {
 			sem.post();
-			while(state != newState) {
-				//
-			}
+			return;
+		}
+
+		while(state != newState) {
+			//
 		}
 	}
 
-	Isr isr;
-	Controller* controller;
+	Delegate<void()> isr;
 	CSemaphore sem; // Signals state change
 	volatile State state{};
 	volatile State nextState{};
 };
 
-AsyncThread asyncThread;
-
+namespace
+{
 void printRequest(Request& req)
 {
 	debug_d("req .cmd = 0x%04x, %u, .out = %p, %u; .in = %p, %u; .callback = %p, %p; async = %u", req.cmd, req.cmdLen,
@@ -147,10 +132,18 @@ void printRequest(Request& req)
 volatile Controller::Stats Controller::stats;
 #endif
 
+ControllerBase::ControllerBase()
+{
+}
+
+ControllerBase::~ControllerBase()
+{
+}
+
 bool Controller::begin()
 {
 	if(!flags.initialised) {
-		ETS_SPI_INTR_ATTACH(isr, this);
+		thread.reset(new AsyncThread([this]() { transactionDone(); }));
 		flags.initialised = true;
 	}
 
@@ -159,8 +152,10 @@ bool Controller::begin()
 
 void Controller::end()
 {
-	ETS_SPI_INTR_DISABLE();
-	flags.initialised = false;
+	if(flags.initialised) {
+		thread->terminate();
+		flags.initialised = false;
+	}
 }
 
 #define FUNC(fmt, ...) debug_i("Controller::%s(" fmt ")", __FUNCTION__, __VA_ARGS__);
@@ -193,7 +188,9 @@ void Controller::configChanged(Device& dev)
 
 void Controller::execute(Request& req)
 {
+#if DEBUG_VERBOSE_LEVEL == DBG
 	FUNC("%p", &req);
+#endif
 
 	if(!flags.initialised || req.device == nullptr || req.device->pinSet == PinSet::none) {
 		debug_e("SPI device not initialised");
@@ -206,7 +203,7 @@ void Controller::execute(Request& req)
 	req.busy = true;
 
 	// Packet transfer already in progress?
-	ETS_SPI_INTR_DISABLE();
+	disableInterrupts();
 	if(trans.busy) {
 		// Tack new packet onto end of chain
 		auto pkt = trans.request;
@@ -219,13 +216,11 @@ void Controller::execute(Request& req)
 		trans.request = &req;
 		startRequest();
 	}
+	enableInterrupts();
 
-	if(req.async) {
-		ETS_SPI_INTR_ENABLE();
-		return;
+	if(!req.async) {
+		wait(req);
 	}
-
-	wait(req);
 }
 
 void Controller::wait(Request& request)
@@ -236,9 +231,7 @@ void Controller::wait(Request& request)
 #ifdef HSPI_ENABLE_STATS
 	CpuCycleTimer timer;
 #endif
-	ETS_SPI_INTR_DISABLE();
 	do {
-		isr(this);
 	} while(request.busy);
 #ifdef HSPI_ENABLE_STATS
 	stats.waitCycles += timer.elapsedTicks();
@@ -273,7 +266,7 @@ void Controller::transactionDone()
 
 #ifdef HSPI_ENABLE_STATS
 	auto datalen = std::max(req.out.length, req.in.length);
-	auto datatrans = (datalen + SPI_BUFSIZE - 1) / SPI_BUFSIZE;
+	auto datatrans = (datalen + hardwareBufferSize - 1) / hardwareBufferSize;
 	stats.transCount += std::max(1U, datatrans);
 #endif
 
@@ -283,10 +276,6 @@ void Controller::transactionDone()
 	}
 
 	trans.busy = false;
-	req.busy = false;
-#ifdef HSPI_ENABLE_STATS
-	++stats.requestCount;
-#endif
 
 	// Note next packet in chain and de-queue this one
 	trans.request = req.next;
@@ -296,17 +285,17 @@ void Controller::transactionDone()
 	++stats.requestCount;
 #endif
 
-	if(!dev.transferComplete(req)) {
+	if(dev.transferComplete(req)) {
+		req.busy = false;
+	} else {
 		trans.request = reQueueRequest(trans.request, &req);
-		req.busy = true;
 	}
 
 	// Feed the hardware
 	if(trans.request == nullptr) {
-		ETS_SPI_INTR_DISABLE();
+		disableInterrupts();
 	} else {
 		startRequest();
-		ETS_SPI_INTR_ENABLE();
 	}
 }
 

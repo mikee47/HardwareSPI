@@ -21,6 +21,7 @@
 #pragma once
 
 #include <cstddef>
+#include <memory>
 
 namespace HSPI
 {
@@ -38,13 +39,20 @@ enum class SpiBus {
 struct DeviceConfig {
 };
 
+class AsyncThread;
+
 class ControllerBase
 {
+public:
+	ControllerBase();
+	~ControllerBase();
+
 protected:
 	struct Flags {
 		bool initialised : 1;
 	};
 
+	std::unique_ptr<AsyncThread> thread;
 	Flags flags{};
 };
 
