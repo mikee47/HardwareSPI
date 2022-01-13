@@ -23,23 +23,16 @@ namespace HSPI
 #ifdef HSPI_ENABLE_STATS
 volatile Controller::Stats Controller::stats;
 #endif
-#ifdef SOC_ESP32
-#define DEFAULT_PIN_MISO 25
-#define DEFAULT_PIN_MOSI 23
-#define DEFAULT_PIN_SCLK 19
-#elif defined(SOC_ESP32S2)
-#define DEFAULT_PIN_MISO 37
-#define DEFAULT_PIN_MOSI 35
-#define DEFAULT_PIN_SCLK 36
-#elif defined(SOC_ESP32C3)
-#define DEFAULT_PIN_MISO 2
-#define DEFAULT_PIN_MOSI 7
-#define DEFAULT_PIN_SCLK 6
-#elif defined(SOC_ESP32S3)
-#define DEFAULT_PIN_MISO 13
-#define DEFAULT_PIN_MOSI 11
-#define DEFAULT_PIN_SCLK 12
+
+const SpiPins defaultPins[]{
+	{.sck = SPI_IOMUX_PIN_NUM_CLK, .miso = SPI_IOMUX_PIN_NUM_MISO, .mosi = SPI_IOMUX_PIN_NUM_MOSI},
+	{.sck = SPI2_IOMUX_PIN_NUM_CLK, .miso = SPI2_IOMUX_PIN_NUM_MISO, .mosi = SPI2_IOMUX_PIN_NUM_MOSI},
+#ifdef SPI3_IOMUX_PIN_NUM_CLK
+	{.sck = SPI3_IOMUX_PIN_NUM_CLK, .miso = SPI3_IOMUX_PIN_NUM_MISO, .mosi = SPI3_IOMUX_PIN_NUM_MOSI},
+#else
+	{.sck = SPI_PIN_DEFAULT, .miso = SPI_PIN_DEFAULT, .mosi = SPI_PIN_DEFAULT},
 #endif
+};
 
 struct EspTransaction {
 	spi_transaction_ext_t ext;
@@ -53,12 +46,12 @@ Controller::~Controller()
 
 bool Controller::begin()
 {
-	auto getPin = [](uint8_t pin, uint8_t defaultPin) -> uint8_t {
-		return (pin == SPI_PIN_DEFAULT) ? defaultPin : pin;
-	};
-	pins.mosi = getPin(pins.mosi, DEFAULT_PIN_MOSI);
-	pins.miso = getPin(pins.miso, DEFAULT_PIN_MISO);
-	pins.sck = getPin(pins.sck, DEFAULT_PIN_SCLK);
+	if(busId < SpiBus::MIN || busId > SpiBus::MAX) {
+		debug_e("[SPI] Invalid bus");
+		return false;
+	}
+
+	assignDefaultPins(defaultPins[unsigned(busId) - 1]);
 
 	auto getPinValue = [](uint8_t pin) -> int { return (pin == SPI_PIN_NONE) ? -1 : pin; };
 	spi_bus_config_t buscfg = {

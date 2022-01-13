@@ -129,7 +129,6 @@ struct SpiPins {
 	uint8_t sck{SPI_PIN_DEFAULT};
 	uint8_t miso{SPI_PIN_DEFAULT};
 	uint8_t mosi{SPI_PIN_DEFAULT};
-	uint8_t ss{SPI_PIN_DEFAULT};
 };
 
 /**
@@ -178,7 +177,7 @@ public:
 	{
 	}
 
-	Controller(SpiBus id, SpiPins pins) : busId(id), pins(pins)
+	Controller(SpiBus id, SpiPins pins) : busId(id), mPins(pins)
 	{
 	}
 
@@ -278,10 +277,28 @@ public:
 	 */
 	bool loopback(bool enable);
 
+	const SpiPins& pins{mPins};
+
 protected:
 	friend Device;
 
 	virtual void execute(Request& request);
+
+	/**
+	 * @brief Assign any default pins
+	 */
+	void assignDefaultPins(const SpiPins& defPins)
+	{
+		if(pins.sck == SPI_PIN_DEFAULT) {
+			mPins.sck = defPins.sck;
+		}
+		if(pins.miso == SPI_PIN_DEFAULT) {
+			mPins.miso = defPins.miso;
+		}
+		if(pins.mosi == SPI_PIN_DEFAULT) {
+			mPins.mosi = defPins.mosi;
+		}
+	}
 
 private:
 #ifdef ARCH_ESP32
@@ -299,7 +316,7 @@ private:
 	void transactionDone();
 
 	SpiBus busId;
-	SpiPins pins;
+	SpiPins mPins;
 	PinSet activePinSet{PinSet::none};
 	SelectDevice selectDeviceCallback{nullptr}; ///< Callback for custom controllers
 	uint8_t normalDevices{0};					///< Number of registered devices using HSPI pins (SPI1)
