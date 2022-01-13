@@ -2,6 +2,7 @@ HardwareSPI
 ===========
 
 Asynchronous SPI device stack for Sming.
+Initially written for ESP8266 but supports other architectures.
 
 Problem statement
 -----------------
