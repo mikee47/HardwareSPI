@@ -193,6 +193,13 @@ public:
 	void end();
 
 	/**
+	 * @brief Determine which IO modes are supported for the given device
+	 *
+	 * May be restricted by both controller and device capabilities.
+	 */
+	IoModes getSupportedIoModes(const Device& dev) const;
+
+	/**
 	 * @brief Set interrupt callback to use for manual CS control (PinSet::manual)
 	 * or if CS pin is multiplexed.
 	 *

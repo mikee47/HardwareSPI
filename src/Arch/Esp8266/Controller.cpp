@@ -401,6 +401,16 @@ void Controller::stopDevice(Device& dev)
 	dev.chipSelect = 255;
 }
 
+IoModes Controller::getSupportedIoModes(const Device& dev) const
+{
+	// dual/quad modes requires overlapped pinset
+	auto modes = dev.getSupportedIoModes();
+	if(dev.pinSet != PinSet::overlap) {
+		modes &= IoModes(IoMode::SPI | IoMode::SPIHD | IoMode::SPI3WIRE);
+	}
+	return modes;
+}
+
 void Controller::configChanged(Device& dev)
 {
 	dev.config.dirty = true;

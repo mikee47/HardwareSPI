@@ -90,6 +90,12 @@ void Controller::end()
 	assert(normalDevices == 0);
 }
 
+IoModes Controller::getSupportedIoModes(const Device& dev) const
+{
+	// Hardware supports all modes
+	return dev.getSupportedIoModes();
+}
+
 void IRAM_ATTR Controller::pre_transfer_callback(spi_transaction_t* t)
 {
 	auto self = static_cast<Controller*>(t->user);

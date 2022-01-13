@@ -123,11 +123,18 @@ public:
 		return clockMode;
 	}
 
+	/**
+	 * @brief Return set of IO modes supported by a device implementation
+	 */
 	virtual IoModes getSupportedIoModes() const = 0;
 
+	/**
+	 * @brief Determine if the device/controller combination supports an IO mode
+	 * Must be called after `begin()` as other settings (e.g. pinset) can affect support.
+	 */
 	bool isSupported(IoMode mode) const
 	{
-		return getSupportedIoModes()[mode];
+		return controller.getSupportedIoModes(*this);
 	}
 
 	virtual bool setIoMode(IoMode mode)
