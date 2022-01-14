@@ -82,45 +82,19 @@
 
 #pragma once
 
-#include <stdint.h>
+#include <cstdint>
 #include <esp_attr.h>
 #include "Request.h"
 #include <bitset>
 #include "Common.h"
-
-#ifdef ARCH_ESP32
-#include <soc/soc_caps.h>
-struct spi_transaction_t;
-struct spi_device_t;
-#endif
+#include <ControllerBase.h>
 
 namespace HSPI
 {
 class Device;
 
-#ifdef ARCH_ESP32
-struct EspTransaction;
-#endif
-
 static constexpr uint8_t SPI_PIN_NONE{0xff};
 static constexpr uint8_t SPI_PIN_DEFAULT{0xfe};
-
-/**
- * @brief Identifies bus selection
- */
-enum class SpiBus {
-	INVALID = 0,
-	MIN = 1,
-	SPI1 = 1,
-#ifdef ARCH_ESP32
-	SPI2 = 2,
-	SPI3 = 3,
-	MAX = SOC_SPI_PERIPH_NUM,
-	DEFAULT = SPI2,
-#else
-	DEFAULT = SPI1,
-#endif
-};
 
 /**
  * @brief SPI pin connections
@@ -133,34 +107,10 @@ struct SpiPins {
 
 /**
  * @brief Manages access to SPI hardware
- *
- * @ingroup hw_spi
  */
-class Controller
+class Controller : public ControllerBase
 {
 public:
-#ifdef ARCH_ESP32
-	static constexpr size_t hardwareBufferSize{4096 - 4}; // SPI_MAX_DMA_LEN
-#else
-	static constexpr size_t hardwareBufferSize{64};
-#endif
-
-	struct Config {
-#ifdef ARCH_ESP32
-		spi_device_t* handle;
-#else
-		bool dirty{true}; ///< Set when values require updating
-		// Pre-calculated register values - see updateConfig()
-		struct {
-			uint32_t clock{0};
-			uint32_t ctrl{0};
-			uint32_t pin{0};
-			uint32_t user{0};
-			uint32_t user1{0};
-		} reg;
-#endif
-	};
-
 	/**
 	 * @brief Interrupt callback for custom Controllers
 	 * @param chipSelect The value passed to `startDevice()`
@@ -173,15 +123,18 @@ public:
 	 */
 	using SelectDevice = void (*)(uint8_t chipSelect, bool active);
 
-	Controller(SpiBus id = SpiBus::DEFAULT) : busId(id)
+	Controller(SpiBus id = SpiBus::DEFAULT) : ControllerBase(), busId(id)
 	{
 	}
 
-	Controller(SpiBus id, SpiPins pins) : busId(id), mPins(pins)
+	Controller(SpiBus id, SpiPins pins) : ControllerBase(), busId(id), mPins(pins)
 	{
 	}
 
-	virtual ~Controller();
+	virtual ~Controller()
+	{
+		end();
+	}
 
 	/* @brief Initialize the HSPI controller
 	 */
@@ -239,16 +192,6 @@ public:
 	{
 		return busId;
 	}
-
-#ifdef ARCH_ESP32
-	/**
-	 * @brief Get the active ESP32 SPI host identifier
-	 */
-	uint8_t getHost() const
-	{
-		return unsigned(busId) - 1;
-	}
-#endif
 
 #ifdef HSPI_ENABLE_STATS
 	struct Stats {
@@ -308,9 +251,11 @@ protected:
 	}
 
 private:
-#ifdef ARCH_ESP32
+#if defined(ARCH_ESP32)
 	static void IRAM_ATTR pre_transfer_callback(spi_transaction_t* t);
 	static void IRAM_ATTR post_transfer_callback(spi_transaction_t* t);
+#elif defined(ARCH_ESP8266) || defined(ARCH_HOST)
+	static void isr(Controller* spi);
 #endif
 
 	static void updateConfig(Device& dev);
@@ -319,50 +264,30 @@ private:
 	void executeTask();
 	void startRequest();
 	void nextTransaction();
-	static void isr(Controller* spi);
 	void transactionDone();
 
 	SpiBus busId;
 	SpiPins mPins;
 	PinSet activePinSet{PinSet::none};
 	SelectDevice selectDeviceCallback{nullptr}; ///< Callback for custom controllers
-	uint8_t normalDevices{0};					///< Number of registered devices using HSPI pins (SPI1)
-#ifndef ARCH_ESP32
-	uint8_t overlapDevices{0};		 ///< Number of registered devices using overlap pins (SPI0)
-	std::bitset<8> chipSelectsInUse; ///< Ensures each CS is used only once
-#endif
-	struct Flags {
-		bool initialised : 1;
-#ifndef ARCH_ESP32
-		bool spi0ClockChanged : 1; ///< SPI0 clock MUX setting was changed for a transaction
-		bool taskQueued : 1;
-#endif
-	};
-	Flags flags{};
 
 	// State of the current transaction in progress
 	struct Transaction {
 		Request* request; ///< The current request being executed
-#ifdef ARCH_RP2040
-		// RP2040 doesn't have a restriction on transaction size, so doesn't need to split requests
-#else
 		uint32_t addr;		///< Address for next transfer
 		uint16_t outOffset; ///< Where to read data for next outgoing transfer
 		uint16_t inOffset;  ///< Where to write incoming data from current transfer
 		uint8_t inlen;		///< Incoming data for current transfer
-#endif
 		IoMode ioMode;
 		// Flags
 		uint8_t bitOrder : 1;
 		volatile uint8_t busy : 1;
+#ifdef ARCH_ESP8266
 		uint8_t addrShift;	///< How many bits to shift address left
 		uint32_t addrCmdMask; ///< In SDI/SQI modes this is combined with address
+#endif
 	};
 	Transaction trans{};
-#ifdef ARCH_ESP32
-	EspTransaction* esp_trans{nullptr};
-	uint32_t dmaBuffer[hardwareBufferSize / sizeof(uint32_t)];
-#endif
 };
 
 } // namespace HSPI

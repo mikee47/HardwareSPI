@@ -1,14 +1,23 @@
 /****
- * Sming Framework Project - Open Source framework for high efficiency native ESP8266 development.
- * Created 2015 by Skurydin Alexey
- * http://github.com/anakod/Sming
- * All files of the Sming Core are provided under the LGPL v3 license.
- *
  * Controller.cpp
+ *
+ * Copyright 2021 mikee47 <mike@sillyhouse.net>
+ * 
+ * This file is part of the HardwareSPI Library
+ *
+ * This library is free software: you can redistribute it and/or modify it under the terms of the
+ * GNU General Public License as published by the Free Software Foundation, version 3 or later.
+ *
+ * This library is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY;
+ * without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ * See the GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License along with this library.
+ * If not, see <https://www.gnu.org/licenses/>.
  *
  * @author: August 2021 - mikee47 <mike@sillyhouse.net>
  *
- */
+ ****/
 
 #include <HSPI/Controller.h>
 #include <HSPI/Device.h>
@@ -20,6 +29,8 @@
 
 namespace HSPI
 {
+constexpr size_t hardwareBufferSize{SPI_MAX_DMA_LEN};
+
 #ifdef HSPI_ENABLE_STATS
 volatile Controller::Stats Controller::stats;
 #endif
@@ -38,10 +49,19 @@ struct EspTransaction {
 	spi_transaction_ext_t ext;
 };
 
-Controller::~Controller()
+ControllerBase::ControllerBase()
 {
-	end();
-	delete esp_trans;
+	esp_trans.reset(new EspTransaction{});
+	dmaBuffer.reset(new uint32_t[hardwareBufferSize / sizeof(uint32_t)]);
+}
+
+ControllerBase::~ControllerBase()
+{
+}
+
+uint8_t ControllerBase::getHost() const
+{
+	return unsigned(static_cast<const Controller*>(this)->getBusId()) - 1;
 }
 
 bool Controller::begin()
@@ -70,10 +90,6 @@ bool Controller::begin()
 		return false;
 	}
 
-	if(esp_trans == nullptr) {
-		esp_trans = new EspTransaction{};
-	}
-
 	flags.initialised = true;
 	return true;
 }
@@ -87,7 +103,7 @@ void Controller::end()
 	flags.initialised = false;
 
 	// Check all devices have been released
-	assert(normalDevices == 0);
+	assert(deviceCount == 0);
 }
 
 IoModes Controller::getSupportedIoModes(const Device& dev) const
@@ -103,7 +119,7 @@ void IRAM_ATTR Controller::pre_transfer_callback(spi_transaction_t* t)
 	req->device->transferStarting(*req);
 }
 
-void IRAM_ATTR Controller::Controller::post_transfer_callback(spi_transaction_t* t)
+void IRAM_ATTR Controller::post_transfer_callback(spi_transaction_t* t)
 {
 	auto self = static_cast<Controller*>(t->user);
 	self->transactionDone();
@@ -147,7 +163,7 @@ bool Controller::startDevice(Device& dev, PinSet pinSet, uint8_t chipSelect, uin
 		return false;
 	}
 
-	++normalDevices;
+	++deviceCount;
 	dev.pinSet = pinSet;
 	dev.chipSelect = chipSelect;
 	dev.speed = clockSpeed; // IDF doesn't report back actual clock speed
@@ -160,8 +176,8 @@ void Controller::stopDevice(Device& dev)
 {
 	switch(dev.pinSet) {
 	case PinSet::normal:
-		assert(normalDevices > 0);
-		--normalDevices;
+		assert(deviceCount > 0);
+		--deviceCount;
 		break;
 
 	case PinSet::none:
@@ -350,12 +366,12 @@ void IRAM_ATTR Controller::nextTransaction()
 			if(esp_ptr_dma_capable(outptr) && IS_ALIGNED(outptr)) {
 				t.base.tx_buffer = outptr;
 			} else {
-				memcpy(dmaBuffer, outptr, outlen);
-				t.base.tx_buffer = dmaBuffer;
+				memcpy(dmaBuffer.get(), outptr, outlen);
+				t.base.tx_buffer = dmaBuffer.get();
 			}
 		} else {
 			dmaBuffer[0] = req.out.data32;
-			t.base.tx_buffer = dmaBuffer;
+			t.base.tx_buffer = dmaBuffer.get();
 		}
 		t.base.length = outlen * 8;
 		trans.outOffset += outlen;
@@ -373,10 +389,10 @@ void IRAM_ATTR Controller::nextTransaction()
 			if(esp_ptr_dma_capable(inptr) && IS_ALIGNED(inptr)) {
 				t.base.rx_buffer = inptr;
 			} else {
-				t.base.rx_buffer = dmaBuffer;
+				t.base.rx_buffer = dmaBuffer.get();
 			}
 		} else {
-			t.base.rx_buffer = dmaBuffer;
+			t.base.rx_buffer = dmaBuffer.get();
 		}
 		trans.inlen = inlen;
 		t.base.rxlength = inlen * 8;
@@ -413,9 +429,9 @@ void IRAM_ATTR Controller::transactionDone()
 
 	// Read incoming data
 	if(trans.inlen != 0) {
-		if(esp_trans->ext.base.rx_buffer == dmaBuffer) {
+		if(esp_trans->ext.base.rx_buffer == dmaBuffer.get()) {
 			if(req.in.isPointer) {
-				memcpy(req.in.ptr8 + trans.inOffset, dmaBuffer, trans.inlen);
+				memcpy(req.in.ptr8 + trans.inOffset, dmaBuffer.get(), trans.inlen);
 			} else {
 				req.in.data32 = dmaBuffer[0];
 			}

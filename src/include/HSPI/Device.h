@@ -218,7 +218,7 @@ protected:
 	}
 
 private:
-	Controller::Config config{}; ///< Private config used by Controller
+	DeviceConfig config{}; ///< Private config used by Controller
 	PinSet pinSet{PinSet::none};
 	uint8_t chipSelect{255};
 	uint32_t speed{0};
