@@ -196,6 +196,11 @@ private:
 	static void IRAM_ATTR post_transfer_callback(spi_transaction_t* t);
 #elif defined(ARCH_ESP8266) || defined(ARCH_HOST)
 	static void isr(Controller* spi);
+#elif defined(ARCH_RP2040)
+	void configure_dma(volatile void* fifo_addr, uint8_t dreq_tx, uint8_t dreq_rx);
+	void release_dma();
+	void interruptHandler();
+	static void staticInterruptHandler();
 #endif
 
 	static void updateConfig(Device& dev);
@@ -214,11 +219,15 @@ private:
 	// State of the current transaction in progress
 	struct Transaction {
 		Request* request; ///< The current request being executed
+#ifdef ARCH_RP2040
+		// RP2040 doesn't have a restriction on transaction size, so doesn't need to split requests
+#else
 		uint32_t addr;		///< Address for next transfer
 		uint16_t outOffset; ///< Where to read data for next outgoing transfer
 		uint16_t inOffset;  ///< Where to write incoming data from current transfer
 		uint8_t inlen;		///< Incoming data for current transfer
 		IoMode ioMode;
+#endif
 		// Flags
 		uint8_t bitOrder : 1;
 		volatile uint8_t busy : 1;
