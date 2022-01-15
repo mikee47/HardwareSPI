@@ -26,8 +26,14 @@
 #include <Platform/Timers.h>
 #include <cassert>
 
-#define enableInterrupts() thread->enable()
-#define disableInterrupts() thread->disable()
+#ifdef HSPI_DEBUG
+#define hspi_debug(fmt, ...)                                                                                           \
+	host_printf("%u [%s] " fmt "\r\n", system_get_time(), CThread::getCurrentName(), ##__VA_ARGS__);
+#else
+#define hspi_debug(fmt, ...)
+#endif
+
+#define FUNC(fmt, ...) hspi_debug("Controller::%s(" fmt ")", __FUNCTION__, ##__VA_ARGS__)
 
 static constexpr size_t hardwareBufferSize{64};
 
@@ -36,83 +42,55 @@ namespace HSPI
 class AsyncThread : public CThread
 {
 public:
-	AsyncThread(Delegate<void()> isr) : CThread("HSPI", 1), isr(isr)
+	using IsrCallback = Delegate<void()>;
+
+	AsyncThread(IsrCallback isr) : CThread("HSPI", 1), isr(isr)
 	{
 		execute();
 	}
 
-	void enable()
-	{
-		setState(State::enabled);
-	}
-
-	void disable()
-	{
-		setState(State::disabled);
-	}
-
 	void terminate()
 	{
-		setState(State::terminating);
+		done = true;
+		sem.post();
 		join();
+	}
+
+	void interruptAfter(unsigned us)
+	{
+		this->transactionTime = us;
+		sem.post();
 	}
 
 protected:
 	void* thread_routine() override
 	{
-		while(state != State::terminating) {
-			if(nextState != state) {
-				state = nextState;
-				continue;
+		while(true) {
+			sem.wait();
+			if(done) {
+				break;
 			}
-			if(state == State::disabled) {
-				sem.wait();
-				continue;
+
+			if(transactionTime != 0) {
+				OneShotFastUs timer;
+				timer.reset(transactionTime);
+				while(!timer.expired()) {
+				}
 			}
-			sched_yield();
-			if(state == State::enabled) {
-				isr();
-			}
+
+			interrupt_begin();
+			isr();
+			interrupt_end();
 		}
 
 		return nullptr;
 	}
 
 private:
-	enum class State {
-		disabled,
-		enabled,
-		terminating,
-	};
-
-	void setState(State newState)
-	{
-		if(nextState == newState) {
-			return;
-		}
-
-		if(isCurrent()) {
-			state = nextState = newState;
-			return;
-		}
-
-		nextState = newState;
-		sched_yield();
-
-		if(newState != State::disabled) {
-			sem.post();
-			return;
-		}
-
-		while(state != newState) {
-			//
-		}
-	}
-
-	Delegate<void()> isr;
+	IsrCallback isr;
 	CSemaphore sem; // Signals state change
-	volatile State state{};
-	volatile State nextState{};
+	uint32_t transactionTime{0};
+	bool done{false};
 };
 
 namespace
@@ -142,9 +120,8 @@ ControllerBase::~ControllerBase()
 
 bool Controller::begin()
 {
-	if(!flags.initialised) {
+	if(!thread) {
 		thread.reset(new AsyncThread([this]() { transactionDone(); }));
-		flags.initialised = true;
 	}
 
 	return true;
@@ -152,19 +129,17 @@ bool Controller::begin()
 
 void Controller::end()
 {
-	if(flags.initialised) {
+	if(thread) {
 		thread->terminate();
-		flags.initialised = false;
+		thread.reset();
 	}
 }
-
-#define FUNC(fmt, ...) debug_i("Controller::%s(" fmt ")", __FUNCTION__, __VA_ARGS__);
 
 bool Controller::startDevice(Device& dev, PinSet pinSet, uint8_t chipSelect, uint32_t clockSpeed)
 {
 	FUNC("%p, %u, %u", &dev, pinSet, chipSelect)
 
-	if(!flags.initialised) {
+	if(!thread) {
 		debug_e("SPI Controller not initialised");
 		return false;
 	}
@@ -192,7 +167,7 @@ void Controller::execute(Request& req)
 	FUNC("%p", &req);
 #endif
 
-	if(!flags.initialised || req.device == nullptr || req.device->pinSet == PinSet::none) {
+	if(!thread || req.device == nullptr || req.device->pinSet == PinSet::none) {
 		debug_e("SPI device not initialised");
 		return;
 	}
@@ -203,7 +178,7 @@ void Controller::execute(Request& req)
 	req.busy = true;
 
 	// Packet transfer already in progress?
-	disableInterrupts();
+	thread->suspend();
 	if(trans.busy) {
 		// Tack new packet onto end of chain
 		auto pkt = trans.request;
@@ -216,7 +191,7 @@ void Controller::execute(Request& req)
 		trans.request = &req;
 		startRequest();
 	}
-	enableInterrupts();
+	thread->resume();
 
 	if(!req.async) {
 		wait(req);
@@ -232,6 +207,7 @@ void Controller::wait(Request& request)
 	CpuCycleTimer timer;
 #endif
 	do {
+		sched_yield();
 	} while(request.busy);
 #ifdef HSPI_ENABLE_STATS
 	stats.waitCycles += timer.elapsedTicks();
@@ -240,6 +216,8 @@ void Controller::wait(Request& request)
 
 void Controller::startRequest()
 {
+	FUNC("%p, %u", trans.request, trans.request->busy);
+
 	trans.busy = true;
 	auto& req = *trans.request;
 	auto& dev = *req.device;
@@ -247,21 +225,32 @@ void Controller::startRequest()
 		selectDeviceCallback(dev.chipSelect, true);
 	}
 	dev.transferStarting(req);
-}
 
-void Controller::isr(Controller* spi)
-{
-	spi->transactionDone();
+	unsigned bitCount = req.cmdLen + req.addrLen;
+	if(dev.ioMode == IoMode::SPI) {
+		bitCount += std::max(req.out.length, req.in.length) * 8;
+	} else {
+		bitCount += (req.out.length + req.in.length) * 8;
+	}
+	unsigned us = muldiv(1000000U, bitCount, dev.speed);
+	thread->interruptAfter(us);
 }
 
 void Controller::transactionDone()
 {
+	FUNC("%p", trans.request);
+
 	assert(trans.request != nullptr);
 	if(trans.request == nullptr) {
 		return;
 	}
 
 	auto& req = *trans.request;
+	assert(req.busy);
+	if(!req.busy) {
+		return;
+	}
+	assert(req.device != nullptr);
 	auto& dev = *req.device;
 
 #ifdef HSPI_ENABLE_STATS
@@ -292,9 +281,7 @@ void Controller::transactionDone()
 	}
 
 	// Feed the hardware
-	if(trans.request == nullptr) {
-		disableInterrupts();
-	} else {
+	if(trans.request != nullptr) {
 		startRequest();
 	}
 }
