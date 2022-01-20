@@ -135,6 +135,12 @@ void Controller::end()
 	}
 }
 
+IoModes Controller::getSupportedIoModes(const Device& dev) const
+{
+	// Hardware supports all modes
+	return dev.getSupportedIoModes();
+}
+
 bool Controller::startDevice(Device& dev, PinSet pinSet, uint8_t chipSelect, uint32_t clockSpeed)
 {
 	FUNC("%p, %u, %u", &dev, pinSet, chipSelect)

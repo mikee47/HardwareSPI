@@ -134,7 +134,7 @@ public:
 	 */
 	bool isSupported(IoMode mode) const
 	{
-		return controller.getSupportedIoModes(*this);
+		return controller.getSupportedIoModes(*this)[mode];
 	}
 
 	virtual bool setIoMode(IoMode mode)
