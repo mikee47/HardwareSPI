@@ -26,7 +26,7 @@ public:
 
 	HSPI::IoModes getSupportedIoModes() const
 	{
-		return HSPI::IoMode::SPI;
+		return HSPI::IoModes::domain();
 	}
 };
 
@@ -100,56 +100,67 @@ public:
 	{
 		using namespace HSPI;
 
-		TEST_CASE("Command only")
-		{
-			Request req;
-			req.setCommand(0xCA, 8);
-			dev.execute(req);
-		}
+		for(unsigned i = 0; i < unsigned(HSPI::IoMode::MAX); ++i) {
+			auto mode = HSPI::IoMode(i);
+			if(!dev.isSupported(mode)) {
+				continue;
+			}
+			Serial.print(F("\r\n\n***  IoMode::"));
+			Serial.print(toString(mode));
+			Serial.println(F("  ***"));
+			dev.setIoMode(mode);
 
-		TEST_CASE("Command + Address + MOSI")
-		{
-			Request req;
-			req.setCommand(0xCA, 8);
-			req.setAddress(0x123456, 24);
-			req.out.set16(0xabcd);
-			dev.execute(req);
-		}
+			TEST_CASE("Command only")
+			{
+				Request req;
+				req.setCommand(0xCA, 8);
+				dev.execute(req);
+			}
 
-		TEST_CASE("Command + Address + MISO")
-		{
-			Request req;
-			req.setCommand(0xCA, 8);
-			req.setAddress(0x123456, 24);
-			req.in.set32(0);
-			dev.execute(req);
-			debug_i("<< 0x%08x", req.in.data32);
-		}
+			TEST_CASE("Command + Address + MOSI")
+			{
+				Request req;
+				req.setCommand(0xCA, 8);
+				req.setAddress(0x123456, 24);
+				req.out.set16(0xabcd);
+				dev.execute(req);
+			}
 
-		TEST_CASE("Command + Address + DUMMY + MISO")
-		{
-			Request req;
-			req.setCommand(0xCA, 8);
-			req.setAddress(0x123456, 24);
-			req.dummyLen = 1;
-			req.in.set32(0);
-			dev.execute(req);
-			debug_i("<< 0x%08x", req.in.data32);
-		}
+			TEST_CASE("Command + Address + MISO")
+			{
+				Request req;
+				req.setCommand(0xCA, 8);
+				req.setAddress(0x123456, 24);
+				req.in.set32(0);
+				dev.execute(req);
+				debug_i("<< 0x%08x", req.in.data32);
+			}
 
-		TEST_CASE("MOSI only")
-		{
-			Request req;
-			req.out.set32(0x12345678);
-			dev.execute(req);
-		}
+			TEST_CASE("Command + Address + DUMMY + MISO")
+			{
+				Request req;
+				req.setCommand(0xCA, 8);
+				req.setAddress(0x123456, 24);
+				req.dummyLen = 1;
+				req.in.set32(0);
+				dev.execute(req);
+				debug_i("<< 0x%08x", req.in.data32);
+			}
 
-		TEST_CASE("MISO only")
-		{
-			Request req;
-			req.in.set32(0);
-			dev.execute(req);
-			debug_i("<< 0x%08x", req.in.data32);
+			TEST_CASE("MOSI only")
+			{
+				Request req;
+				req.out.set32(0x12345678);
+				dev.execute(req);
+			}
+
+			TEST_CASE("MISO only")
+			{
+				Request req;
+				req.in.set32(0);
+				dev.execute(req);
+				debug_i("<< 0x%08x", req.in.data32);
+			}
 		}
 	}
 

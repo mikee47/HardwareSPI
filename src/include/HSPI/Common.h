@@ -56,9 +56,10 @@ enum class IoMode : uint8_t {
 	QUAD,	 ///< Four bits per clock  for Data, 1-bit for Command and Address
 	QIO,	  ///< Four bits per clock for Address and Data, 1-bit for Command
 	SQI,	  ///< Four bits per clock for Command, Address and Data
+	MAX,
 };
 
-using IoModes = BitSet<uint8_t, IoMode>;
+using IoModes = BitSet<uint16_t, IoMode, unsigned(IoMode::MAX)>;
 
 inline constexpr IoModes operator|(IoMode a, IoMode b)
 {
