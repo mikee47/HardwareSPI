@@ -702,8 +702,17 @@ void IRAM_ATTR Controller::startRequest()
 			reverseBits(req.out.get(), req.out.length);
 		}
 		channel_mask |= BIT(dma.tx_channel);
+		size_t outlen = req.out.length;
+		if(dev.ioMode != IoMode::SPI) {
+			/*
+			 * Half-duplex, transmit bytes to match MISO
+			 * TODO: For simplicity just read past end of provided buffer
+			 * since we don't care what data is output.
+			 */
+			outlen += req.in.length;
+		}
 		dma_channel_set_read_addr(dma.tx_channel, req.out.get(), false);
-		dma_channel_set_trans_count(dma.tx_channel, req.out.length, false);
+		dma_channel_set_trans_count(dma.tx_channel, outlen, false);
 		dma_channel_set_config(dma.tx_channel, &dma.tx_config, false);
 	} else if(req.in.length != 0) {
 		// Clock dummy bits
@@ -721,6 +730,13 @@ void IRAM_ATTR Controller::startRequest()
 		dma_channel_set_write_addr(dma.rx_channel, dma.buffer, false);
 		dma_channel_set_trans_count(dma.rx_channel, fifoCount + req.out.length, false);
 		dma_channel_set_config(dma.rx_channel, &dma.rx_config_dummy, false);
+	} else if(dev.ioMode != IoMode::SPI) {
+		// Half-duplex, use dummy read followed by MISO read
+		channel_mask |= BIT(dma.ctrl_channel);
+		dma.control_blocks[0] = RxControlBlock{dma.buffer, size_t(fifoCount + req.out.length)};
+		dma.control_blocks[1] = RxControlBlock{req.in.get(), req.in.length};
+		dma_channel_set_read_addr(dma.ctrl_channel, &dma.control_blocks[0], false);
+		dma_channel_set_config(dma.rx_channel, &dma.rx_config_chain, false);
 	} else if(fifoCount != 0) {
 		// Dummy read followed by MISO read
 		channel_mask |= BIT(dma.ctrl_channel);
