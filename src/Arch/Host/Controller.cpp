@@ -184,7 +184,7 @@ void Controller::execute(Request& req)
 	req.busy = true;
 
 	// Packet transfer already in progress?
-	thread->suspend();
+	noInterrupts();
 	if(trans.busy) {
 		// Tack new packet onto end of chain
 		auto pkt = trans.request;
@@ -197,7 +197,7 @@ void Controller::execute(Request& req)
 		trans.request = &req;
 		startRequest();
 	}
-	thread->resume();
+	interrupts();
 
 	if(!req.async) {
 		wait(req);

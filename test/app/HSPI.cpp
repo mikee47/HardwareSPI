@@ -3,6 +3,7 @@
 
 namespace
 {
+/*
 void printBin(const char* tag, uint32_t value)
 {
 	char buf[40];
@@ -18,6 +19,7 @@ void printBin(const char* tag, uint32_t value)
 	m_nputs(buf + 24, 8);
 	m_puts("\r\n");
 }
+*/
 
 class TestDevice : public HSPI::Device
 {
