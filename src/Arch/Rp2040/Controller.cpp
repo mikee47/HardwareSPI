@@ -280,21 +280,21 @@ SpiPreDiv calculateClock(unsigned baudrate)
 // 	return result;
 // }
 
-uint8_t reverseBits(uint8_t n)
+uint8_t IRAM_ATTR reverseBits(uint8_t n)
 {
-	static constexpr uint8_t rev_nybble[16]{
+	static constexpr IRAM_ATTR uint8_t rev_nybble[16]{
 		0b0000, 0b1000, 0b0100, 0b1100, 0b0010, 0b1010, 0b0110, 0b1110,
 		0b0001, 0b1001, 0b0101, 0b1101, 0b0011, 0b1011, 0b0111, 0b1111,
 	};
 	return (rev_nybble[n & 0x0f] << 4) | rev_nybble[n >> 4];
 }
 
-uint16_t reverseBits(uint16_t n)
+uint16_t IRAM_ATTR reverseBits(uint16_t n)
 {
 	return (reverseBits(uint8_t(n)) << 8) | reverseBits(uint8_t(n >> 8));
 }
 
-uint32_t reverseBits(uint32_t n)
+uint32_t IRAM_ATTR reverseBits(uint32_t n)
 {
 	return (reverseBits(uint16_t(n)) << 16) | reverseBits(uint16_t(n >> 16));
 }
