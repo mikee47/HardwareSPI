@@ -470,15 +470,12 @@ bool Controller::startDevice(Device& dev, PinSet pinSet, uint8_t chipSelect, uin
 	gpio_set_function(chipSelect, GPIO_FUNC_SIO);
 
 	// Calculate clock setting
-	auto prediv = calculateClock(clockSpeed);
-	dev.config.clk_prescale = prediv.prescale;
-	dev.config.clk_postdiv = prediv.postdiv;
+	setClockSpeed(dev, clockSpeed);
 	dev.config.dirty = true;
 
 	++deviceCount;
 	dev.pinSet = pinSet;
 	dev.chipSelect = chipSelect;
-	dev.speed = prediv.freq; // Set actual clock speed in use
 
 	debug_i("[SPI] Bus %u, CS #%u acquired", unsigned(busId), chipSelect);
 	return true;
@@ -517,6 +514,15 @@ void Controller::updateConfig(Device& dev)
 	auto& cfg = dev.config;
 	cfg.cr0val = SpiPeriph::makeCR0(dev.getClockMode(), cfg.clk_postdiv);
 	cfg.dirty = false;
+}
+
+uint32_t Controller::setClockSpeed(Device& dev, uint32_t freq)
+{
+	auto prediv = calculateClock(freq);
+	dev.config.clk_prescale = prediv.prescale;
+	dev.config.clk_postdiv = prediv.postdiv;
+	dev.speed = prediv.freq; // Set actual clock speed in use
+	return prediv.freq;
 }
 
 void Controller::execute(Request& req)

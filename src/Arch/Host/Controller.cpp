@@ -167,6 +167,11 @@ void Controller::configChanged(Device& dev)
 {
 }
 
+uint32_t Controller::setClockSpeed(Device& dev, uint32_t freq)
+{
+	return dev.speed;
+}
+
 void Controller::execute(Request& req)
 {
 #if DEBUG_VERBOSE_LEVEL == DBG

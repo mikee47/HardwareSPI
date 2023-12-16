@@ -349,10 +349,7 @@ bool Controller::startDevice(Device& dev, PinSet pinSet, uint8_t chipSelect, uin
 	chipSelectsInUse[chipSelect] = true;
 	dev.config.dirty = true;
 
-	// Calculate clock setting
-	spi_dev_t::clock_t reg;
-	dev.speed = calculateClock(clockSpeed, reg);
-	dev.config.reg.clock = reg.val;
+	setClockSpeed(dev, clockSpeed);
 
 	debug_i("SPI pinSet %u, CS #%u acquired", unsigned(pinSet), chipSelect);
 	return true;
@@ -516,6 +513,14 @@ void Controller::updateConfig(Device& dev)
 	cfg.reg.ctrl = reg.ctrl.val;
 	cfg.reg.pin = reg.pin.val;
 	cfg.dirty = false;
+}
+
+uint32_t Controller::setClockSpeed(Device& dev, uint32_t freq)
+{
+	spi_dev_t::clock_t reg;
+	dev.speed = calculateClock(freq, reg);
+	dev.config.reg.clock = reg.val;
+	return dev.speed;
 }
 
 /*

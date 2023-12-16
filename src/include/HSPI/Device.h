@@ -124,6 +124,17 @@ public:
 	}
 
 	/**
+	 * @brief Dynamically change clock speed
+	 * @param freq Clock speed in Hz
+	 * @retval uint32_t Actual clock speed in use
+	 * @note May not be supported by all architectures
+	 */
+	uint32_t setClockSpeed(uint32_t freq)
+	{
+		return controller.setClockSpeed(*this, freq);
+	}
+
+	/**
 	 * @brief Return set of IO modes supported by a device implementation
 	 */
 	virtual IoModes getSupportedIoModes() const = 0;
