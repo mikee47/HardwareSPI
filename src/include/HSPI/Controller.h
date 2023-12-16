@@ -124,6 +124,14 @@ public:
 	void configChanged(Device& dev);
 
 	/**
+	 * @brief Dynamically change clock speed for device
+	 * @param freq Clock speed in Hz
+	 * @retval uint32_t Actual clock speed in use
+	 * @note Always return actual clock speed, even if dynamic changes aren't supported
+	 */
+	uint32_t setClockSpeed(Device& dev, uint32_t freq);
+
+	/**
 	 * @brief Get the active bus identifier
 	 *
 	 * On successful call to begin() returns actual bus in use.

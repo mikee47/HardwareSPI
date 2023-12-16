@@ -210,6 +210,12 @@ void Controller::updateConfig(Device& dev)
 {
 }
 
+uint32_t Controller::setClockSpeed(Device& dev, uint32_t freq)
+{
+	// IDF doesn't allow changing clock speed, just return current speed
+	return dev.speed;
+}
+
 /*
  * With the ESP32 we have both regular FIFO operation and the alternative DMA operation. In both cases
  * a transaction is set up as usual, command, address, etc. with the only difference with the data
