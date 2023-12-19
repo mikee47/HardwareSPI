@@ -59,6 +59,7 @@ struct Request {
 	Request* next{nullptr};		///< Controller uses this to queue requests
 	uint16_t cmd{0};			///< Command value
 	uint8_t cmdLen{0};			///< Command bits, 0 - 16
+	uint8_t chipsel : 1;		///< Assert CS (normal operation)
 	uint8_t async : 1;			///< Set for asynchronous operation
 	uint8_t task : 1;			///< Controller will execute this request in task mode
 	volatile uint8_t busy : 1;  ///< Request in progress
@@ -71,7 +72,7 @@ struct Request {
 	Callback callback{nullptr}; ///< Completion routine
 	void* param{nullptr};		///< User parameter
 
-	Request() : async(false), task(false), busy(false)
+	Request() : chipsel(true), async(false), task(false), busy(false)
 	{
 	}
 

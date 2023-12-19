@@ -642,7 +642,9 @@ void IRAM_ATTR Controller::startRequest()
 	dev.transferStarting(req);
 
 	// Assert CS
-	gpio_put(dev.chipSelect, false);
+	if(req.chipsel) {
+		gpio_put(dev.chipSelect, false);
+	}
 
 	trans.busy = true;
 	trans.bitOrder = dev.bitOrder;
