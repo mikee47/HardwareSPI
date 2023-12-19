@@ -464,10 +464,12 @@ bool Controller::startDevice(Device& dev, PinSet pinSet, uint8_t chipSelect, uin
 	}
 
 	// Chip select
-	gpio_put(chipSelect, true);
-	gpio_set_dir(chipSelect, true);
-	gpio_disable_pulls(chipSelect);
-	gpio_set_function(chipSelect, GPIO_FUNC_SIO);
+	if(chipSelect != SPI_PIN_NONE) {
+		gpio_put(chipSelect, true);
+		gpio_set_dir(chipSelect, true);
+		gpio_disable_pulls(chipSelect);
+		gpio_set_function(chipSelect, GPIO_FUNC_SIO);
+	}
 
 	// Calculate clock setting
 	setClockSpeed(dev, clockSpeed);
@@ -498,10 +500,8 @@ void Controller::stopDevice(Device& dev)
 		return;
 	}
 
-	detachInterrupt(dev.chipSelect);
-
 	dev.pinSet = PinSet::none;
-	dev.chipSelect = 255;
+	dev.chipSelect = SPI_PIN_NONE;
 }
 
 void Controller::configChanged(Device& dev)
@@ -642,7 +642,9 @@ void IRAM_ATTR Controller::startRequest()
 	dev.transferStarting(req);
 
 	// Assert CS
-	gpio_put(dev.chipSelect, false);
+	if(dev.chipSelect != SPI_PIN_NONE) {
+		gpio_put(dev.chipSelect, false);
+	}
 
 	trans.busy = true;
 	trans.bitOrder = dev.bitOrder;
@@ -778,7 +780,9 @@ void IRAM_ATTR Controller::transactionDone()
 	auto& dev = *req.device;
 
 	// De-assert CS
-	gpio_put(dev.chipSelect, true);
+	if(dev.chipSelect != SPI_PIN_NONE) {
+		gpio_put(dev.chipSelect, true);
+	}
 
 	if(selectDeviceCallback) {
 		selectDeviceCallback(dev.chipSelect, false);
