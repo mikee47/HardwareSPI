@@ -142,10 +142,23 @@ bool Controller::startDevice(Device& dev, PinSet pinSet, uint8_t chipSelect, uin
 		return false;
 	}
 
+	dev.chipSelect = chipSelect;
+	dev.speed = clockSpeed; // IDF doesn't report back actual clock speed
+
+	if(!configureDevice(dev)) {
+		return false;
+	}
+
+bool Controller::configureDevice(Device& dev)
+{
+	if(dev.config.handle) {
+		return false;
+	}
+
 	spi_device_interface_config_t devcfg{
 		.mode = uint8_t(dev.getClockMode()),
-		.clock_speed_hz = int(clockSpeed),
-		.spics_io_num = chipSelect,
+		.clock_speed_hz = int(dev.speed),
+		.spics_io_num = dev.chipSelect,
 		.flags = 0,
 		.queue_size = 1,
 		.pre_cb = pre_transfer_callback,
@@ -165,8 +178,6 @@ bool Controller::startDevice(Device& dev, PinSet pinSet, uint8_t chipSelect, uin
 
 	++deviceCount;
 	dev.pinSet = pinSet;
-	dev.chipSelect = chipSelect;
-	dev.speed = clockSpeed; // IDF doesn't report back actual clock speed
 
 	debug_i("[SPI] Bus %u, CS #%u acquired", unsigned(busId), chipSelect);
 	return true;
@@ -192,6 +203,7 @@ void Controller::stopDevice(Device& dev)
 	auto cs = dev.chipSelect;
 
 	auto err = spi_bus_remove_device(spi_device_handle_t(dev.config.handle));
+	dev.config.handle = nullptr;
 	if(err == ESP_OK) {
 		debug_i("[SPI] Bus %u, CS #%u released", unsigned(busId), cs);
 	} else {
@@ -212,6 +224,12 @@ void Controller::updateConfig(Device& dev)
 
 uint32_t Controller::setClockSpeed(Device& dev, uint32_t freq)
 {
+	// Need to remove and re-initialise the device
+	if(!dev.config.handle) {
+		return;
+	}
+		spi_bus_remove_device(spi_device_handle_t(dev.config.handle));
+	}
 	// IDF doesn't allow changing clock speed, just return current speed
 	return dev.speed;
 }
