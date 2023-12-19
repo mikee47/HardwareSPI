@@ -145,7 +145,7 @@ bool Controller::startDevice(Device& dev, PinSet pinSet, uint8_t chipSelect, uin
 	spi_device_interface_config_t devcfg{
 		.mode = uint8_t(dev.getClockMode()),
 		.clock_speed_hz = int(clockSpeed),
-		.spics_io_num = chipSelect,
+		.spics_io_num = (chipSelect == SPI_PIN_NONE) ? GPIO_NUM_NC : chipSelect,
 		.flags = 0,
 		.queue_size = 1,
 		.pre_cb = pre_transfer_callback,
