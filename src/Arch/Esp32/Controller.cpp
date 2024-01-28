@@ -36,12 +36,36 @@ volatile Controller::Stats Controller::stats;
 #endif
 
 const SpiPins defaultPins[]{
-	{.sck = SPI_IOMUX_PIN_NUM_CLK, .miso = SPI_IOMUX_PIN_NUM_MISO, .mosi = SPI_IOMUX_PIN_NUM_MOSI},
-	{.sck = SPI2_IOMUX_PIN_NUM_CLK, .miso = SPI2_IOMUX_PIN_NUM_MISO, .mosi = SPI2_IOMUX_PIN_NUM_MOSI},
+	{
+		.sck = SPI_IOMUX_PIN_NUM_CLK,
+		.miso = SPI_IOMUX_PIN_NUM_MISO,
+		.mosi = SPI_IOMUX_PIN_NUM_MOSI,
+		.io2 = SPI_IOMUX_PIN_NUM_WP,
+		.io3 = SPI_IOMUX_PIN_NUM_HD,
+	},
+	{
+		.sck = SPI2_IOMUX_PIN_NUM_CLK,
+		.miso = SPI2_IOMUX_PIN_NUM_MISO,
+		.mosi = SPI2_IOMUX_PIN_NUM_MOSI,
+		.io2 = SPI2_IOMUX_PIN_NUM_WP,
+		.io3 = SPI2_IOMUX_PIN_NUM_HD,
+	},
 #ifdef SPI3_IOMUX_PIN_NUM_CLK
-	{.sck = SPI3_IOMUX_PIN_NUM_CLK, .miso = SPI3_IOMUX_PIN_NUM_MISO, .mosi = SPI3_IOMUX_PIN_NUM_MOSI},
+	{
+		.sck = SPI3_IOMUX_PIN_NUM_CLK,
+		.miso = SPI3_IOMUX_PIN_NUM_MISO,
+		.mosi = SPI3_IOMUX_PIN_NUM_MOSI,
+		.io2 = SPI3_IOMUX_PIN_NUM_WP,
+		.io3 = SPI3_IOMUX_PIN_NUM_HD,
+	},
 #else
-	{.sck = SPI_PIN_DEFAULT, .miso = SPI_PIN_DEFAULT, .mosi = SPI_PIN_DEFAULT},
+	{
+		.sck = SPI_PIN_DEFAULT,
+		.miso = SPI_PIN_DEFAULT,
+		.mosi = SPI_PIN_DEFAULT,
+		.io2 = SPI_PIN_DEFAULT,
+		.io3 = SPI_PIN_DEFAULT,
+	},
 #endif
 };
 
@@ -78,8 +102,8 @@ bool Controller::begin()
 		.mosi_io_num = getPinValue(pins.mosi),
 		.miso_io_num = getPinValue(pins.miso),
 		.sclk_io_num = getPinValue(pins.sck),
-		.quadwp_io_num = -1,
-		.quadhd_io_num = -1,
+		.quadwp_io_num = getPinValue(pins.io2),
+		.quadhd_io_num = getPinValue(pins.io3),
 		.max_transfer_sz = 0, // Use default
 		.flags = 0,
 		.intr_flags = ESP_INTR_FLAG_LOWMED, // ESP_INTR_FLAG_IRAM,
