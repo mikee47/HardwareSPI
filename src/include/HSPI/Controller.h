@@ -41,8 +41,10 @@ static constexpr uint8_t SPI_PIN_DEFAULT{0xfe};
  */
 struct SpiPins {
 	uint8_t sck{SPI_PIN_DEFAULT};
-	uint8_t miso{SPI_PIN_DEFAULT};
-	uint8_t mosi{SPI_PIN_DEFAULT};
+	uint8_t miso{SPI_PIN_DEFAULT}; ///< or IO0
+	uint8_t mosi{SPI_PIN_DEFAULT}; ///< or IO1
+	uint8_t io2{SPI_PIN_NONE};	 ///< or WP (Write Protect)
+	uint8_t io3{SPI_PIN_NONE};	 ///< or HD (Hold) for flash devices
 };
 
 /**
@@ -195,6 +197,12 @@ protected:
 		}
 		if(pins.mosi == SPI_PIN_DEFAULT) {
 			mPins.mosi = defPins.mosi;
+		}
+		if(pins.io2 == SPI_PIN_DEFAULT) {
+			mPins.io2 = defPins.io2;
+		}
+		if(pins.io3 == SPI_PIN_DEFAULT) {
+			mPins.io3 = defPins.io3;
 		}
 	}
 
