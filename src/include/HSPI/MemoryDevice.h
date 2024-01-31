@@ -182,7 +182,7 @@ public:
 	{
 		Request req;
 		prepareRead(req, address);
-		req.in.set8(address);
+		req.in.set8(0);
 		execute(req);
 		return req.in.data8;
 	}
@@ -191,7 +191,7 @@ public:
 	{
 		Request req;
 		prepareRead(req, address);
-		req.in.set16(address);
+		req.in.set16(0);
 		execute(req);
 		return req.in.data16;
 	}
@@ -200,7 +200,7 @@ public:
 	{
 		Request req;
 		prepareRead(req, address);
-		req.in.set32(address);
+		req.in.set32(0);
 		execute(req);
 		return req.in.data32;
 	}

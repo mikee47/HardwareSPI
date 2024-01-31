@@ -166,7 +166,7 @@ unsigned StreamAdapter::readChunks()
 	}
 
 	return ret;
-} // namespace HSPI
+}
 
 bool IRAM_ATTR StreamAdapter::requestComplete(HSPI::Request& req)
 {
