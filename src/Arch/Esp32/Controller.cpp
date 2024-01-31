@@ -213,13 +213,12 @@ void Controller::stopDevice(Device& dev)
 		return;
 	}
 
-	auto cs = dev.chipSelect;
-
 	auto err = spi_bus_remove_device(spi_device_handle_t(dev.config.handle));
+	dev.config.handle = nullptr;
 	if(err == ESP_OK) {
-		debug_i("[SPI] Bus %u, CS #%u released", unsigned(busId), cs);
+		debug_i("[SPI] Bus %u, CS #%u released", unsigned(busId), dev.chipSelect);
 	} else {
-		debug_e("[SPI] Problem releasing bus %u, CS #%u", unsigned(busId), cs);
+		debug_e("[SPI] Problem releasing bus %u, CS #%u", unsigned(busId), dev.chipSelect);
 	}
 
 	dev.pinSet = PinSet::none;
@@ -236,7 +235,16 @@ void Controller::updateConfig(Device& dev)
 
 uint32_t Controller::setClockSpeed(Device& dev, uint32_t freq)
 {
-	// IDF doesn't allow changing clock speed, just return current speed
+	if(dev.config.handle) {
+		// Need to remove and re-initialise the device
+		auto pinSet = dev.pinSet;
+		auto chipSelect = dev.chipSelect;
+		stopDevice(dev);
+		startDevice(dev, pinSet, chipSelect, freq);
+	} else {
+		dev.speed = freq;
+	}
+
 	return dev.speed;
 }
 
