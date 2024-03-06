@@ -51,7 +51,7 @@ struct EspTransaction {
 
 ControllerBase::ControllerBase()
 {
-	esp_trans.reset(new EspTransaction{});
+	esp_trans = std::make_unique<EspTransaction>();
 	dmaBuffer.reset(new uint32_t[hardwareBufferSize / sizeof(uint32_t)]);
 }
 

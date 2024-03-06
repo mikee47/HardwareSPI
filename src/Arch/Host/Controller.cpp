@@ -121,7 +121,7 @@ ControllerBase::~ControllerBase()
 bool Controller::begin()
 {
 	if(!thread) {
-		thread.reset(new AsyncThread([this]() { transactionDone(); }));
+		thread = std::make_unique<AsyncThread>([this]() { transactionDone(); });
 	}
 
 	return true;

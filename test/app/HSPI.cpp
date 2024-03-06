@@ -68,7 +68,7 @@ public:
 		TEST_CASE("Large transfer")
 		{
 			// constexpr size_t bufSize{6666};
-			lt.reset(new LargeTransfer);
+			lt = std::make_unique<LargeTransfer>();
 			lt->init();
 			lt->req.setAsync(
 				[](HSPI::Request& request) {
