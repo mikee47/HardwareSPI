@@ -261,7 +261,7 @@ void Controller::transactionDone()
 
 #ifdef HSPI_ENABLE_STATS
 	auto datalen = std::max(req.out.length, req.in.length);
-	auto datatrans = (datalen + hardwareBufferSize - 1) / hardwareBufferSize;
+	unsigned datatrans = (datalen + hardwareBufferSize - 1) / hardwareBufferSize;
 	stats.transCount += std::max(1U, datatrans);
 #endif
 
