@@ -389,8 +389,11 @@ void IRAM_ATTR Controller::nextTransaction()
 
 	// If there's too much data to fit in a single transaction, trim it down
 	auto sizeAlign = [&](size_t len) {
-		if(len <= hardwareBufferSize || req.sizeAlign <= 1) {
+		if(len <= hardwareBufferSize) {
 			return len;
+		}
+		if(req.sizeAlign <= 1) {
+			return hardwareBufferSize;
 		}
 		return hardwareBufferSize - len % req.sizeAlign;
 	};

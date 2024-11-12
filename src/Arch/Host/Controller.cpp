@@ -100,7 +100,7 @@ void printRequest(Request& req)
 	debug_d("req .cmd = 0x%04x, %u, .out = %p, %u; .in = %p, %u; .callback = %p, %p; async = %u", req.cmd, req.cmdLen,
 			req.out.get(), req.out.length, req.in.get(), req.in.length, req.callback, req.param, unsigned(req.async));
 	if(req.out.length > 0) {
-		debug_hex(DBG, "OUT", req.out.get(), std::min(req.out.length, uint16_t(32)), -1, 32);
+		debug_hex(DBG, "OUT", req.out.get(), std::min(req.out.length, uint32_t(32)), -1, 32);
 	}
 }
 

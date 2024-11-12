@@ -50,8 +50,8 @@ struct Data {
 		const void* cptr;
 		uint8_t* ptr8;
 	};
-	uint16_t length : 15;   ///< Number of bytes of data
-	uint16_t isPointer : 1; ///< If set, data is referenced indirectly, otherwise it's stored directly
+	uint32_t length : 31;   ///< Number of bytes of data
+	uint32_t isPointer : 1; ///< If set, data is referenced indirectly, otherwise it's stored directly
 
 	Data()
 	{
@@ -73,7 +73,7 @@ struct Data {
 	 * @param data Location of data
 	 * @param count Number of bytes
 	 */
-	__forceinline void set(const void* data, uint16_t count)
+	__forceinline void set(const void* data, uint32_t count)
 	{
 		cptr = data;
 		length = count;

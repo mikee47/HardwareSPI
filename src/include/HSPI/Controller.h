@@ -239,9 +239,9 @@ private:
 		// RP2040 doesn't have a restriction on transaction size, so doesn't need to split requests
 #else
 		uint32_t addr;		///< Address for next transfer
-		uint16_t outOffset; ///< Where to read data for next outgoing transfer
-		uint16_t inOffset;  ///< Where to write incoming data from current transfer
-		uint8_t inlen;		///< Incoming data for current transfer
+		uint32_t outOffset; ///< Where to read data for next outgoing transfer
+		uint32_t inOffset;  ///< Where to write incoming data from current transfer
+		uint16_t inlen;		///< Incoming data for current transfer
 		IoMode ioMode;
 #endif
 		// Flags
