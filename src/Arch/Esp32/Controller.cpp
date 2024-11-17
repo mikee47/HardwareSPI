@@ -26,6 +26,9 @@
 #include <esp_intr_alloc.h>
 #include <Platform/Timers.h>
 #include <debug_progmem.h>
+#include <esp_private/spi_common_internal.h>
+#include <soc/gpio_periph.h>
+#include <hal/gpio_ll.h>
 
 namespace HSPI
 {
@@ -73,6 +76,172 @@ struct EspTransaction {
 	spi_transaction_ext_t ext;
 };
 
+#if 0
+static esp_err_t alloc_dma_chan(spi_host_device_t host_id, gdma_channel_handle_t& tx_channel,
+								gdma_channel_handle_t& rx_channel)
+{
+#if SOC_GDMA_SUPPORTED
+	assert(is_valid_host(host_id));
+	assert(dma_chan == SPI_DMA_CH_AUTO);
+
+	gdma_channel_alloc_config_t tx_alloc_config = {
+		.flags.reserve_sibling = 1,
+		.direction = GDMA_CHANNEL_DIRECTION_TX,
+	};
+	ESP_RETURN_ON_ERROR(SPI_GDMA_NEW_CHANNEL(&tx_alloc_config, &tx_channel), SPI_TAG, "alloc gdma tx failed");
+
+	gdma_channel_alloc_config_t rx_alloc_config = {
+		.direction = GDMA_CHANNEL_DIRECTION_RX,
+		.sibling_chan = ctx->tx_channel,
+	};
+	ESP_RETURN_ON_ERROR(SPI_GDMA_NEW_CHANNEL(&rx_alloc_config, &rx_channel), SPI_TAG, "alloc gdma rx failed");
+
+	if(host_id == SPI2_HOST) {
+		gdma_connect(ctx->rx_channel, GDMA_MAKE_TRIGGER(GDMA_TRIG_PERIPH_SPI, 2));
+		gdma_connect(ctx->tx_channel, GDMA_MAKE_TRIGGER(GDMA_TRIG_PERIPH_SPI, 2));
+	}
+#if(SOC_SPI_PERIPH_NUM >= 3)
+	else if(host_id == SPI3_HOST) {
+		gdma_connect(ctx->rx_channel, GDMA_MAKE_TRIGGER(GDMA_TRIG_PERIPH_SPI, 3));
+		gdma_connect(ctx->tx_channel, GDMA_MAKE_TRIGGER(GDMA_TRIG_PERIPH_SPI, 3));
+	}
+#endif
+	gdma_get_channel_id(ctx->tx_channel, (int*)out_actual_tx_dma_chan);
+	gdma_get_channel_id(ctx->rx_channel, (int*)out_actual_rx_dma_chan);
+
+#else // SOC_GDMA_SUPPORTED
+
+	bool success = false;
+	uint32_t actual_dma_chan;
+#if CONFIG_IDF_TARGET_ESP32
+	for(unsigned i = 1; i < SOC_SPI_DMA_CHAN_NUM + 1; i++) {
+		success = claim_dma_chan(i, &actual_dma_chan);
+		if(success) {
+			break;
+		}
+	}
+#elif CONFIG_IDF_TARGET_ESP32S2
+	// On ESP32S2, each SPI controller has its own DMA channel
+	success = claim_dma_chan(host_id, &actual_dma_chan);
+#endif //#if CONFIG_IDF_TARGET_XXX
+
+	//On ESP32 and ESP32S2, actual_tx_dma_chan and actual_rx_dma_chan are always same
+	*out_actual_tx_dma_chan = actual_dma_chan;
+	*out_actual_rx_dma_chan = actual_dma_chan;
+
+	if(!success) {
+		debug_e("[HSPI] no available dma channel");
+		return ESP_ERR_NOT_FOUND;
+	}
+
+	connect_spi_and_dma(host_id, *out_actual_tx_dma_chan);
+
+#endif
+
+	return ESP_OK;
+}
+
+#endif
+
+static bool check_iomux_pins(spi_host_device_t host, const spi_bus_config_t* bus_config)
+{
+	auto& sig = spi_periph_signal[host];
+	if(bus_config->sclk_io_num >= 0 && bus_config->sclk_io_num != sig.spiclk_iomux_pin) {
+		return false;
+	}
+	if(bus_config->quadwp_io_num >= 0 && bus_config->quadwp_io_num != sig.spiwp_iomux_pin) {
+		return false;
+	}
+	if(bus_config->quadhd_io_num >= 0 && bus_config->quadhd_io_num != sig.spihd_iomux_pin) {
+		return false;
+	}
+	if(bus_config->mosi_io_num >= 0 && bus_config->mosi_io_num != sig.spid_iomux_pin) {
+		return false;
+	}
+	if(bus_config->miso_io_num >= 0 && bus_config->miso_io_num != sig.spiq_iomux_pin) {
+		return false;
+	}
+	return true;
+}
+
+esp_err_t spicommon_bus_initialize_io(spi_host_device_t host, const spi_bus_config_t* bus_config)
+{
+	// Check if the selected pins correspond to the iomux pins of the peripheral
+	bool use_iomux = check_iomux_pins(host, bus_config);
+
+	if(use_iomux) {
+		if(bus_config->mosi_io_num >= 0) {
+			gpio_iomux_in(bus_config->mosi_io_num, spi_periph_signal[host].spid_in);
+			gpio_iomux_out(bus_config->mosi_io_num, spi_periph_signal[host].func, false);
+		}
+		if(bus_config->miso_io_num >= 0) {
+			gpio_iomux_in(bus_config->miso_io_num, spi_periph_signal[host].spiq_in);
+			gpio_iomux_out(bus_config->miso_io_num, spi_periph_signal[host].func, false);
+		}
+		if(bus_config->quadwp_io_num >= 0) {
+			gpio_iomux_in(bus_config->quadwp_io_num, spi_periph_signal[host].spiwp_in);
+			gpio_iomux_out(bus_config->quadwp_io_num, spi_periph_signal[host].func, false);
+		}
+		if(bus_config->quadhd_io_num >= 0) {
+			gpio_iomux_in(bus_config->quadhd_io_num, spi_periph_signal[host].spihd_in);
+			gpio_iomux_out(bus_config->quadhd_io_num, spi_periph_signal[host].func, false);
+		}
+		if(bus_config->sclk_io_num >= 0) {
+			gpio_iomux_in(bus_config->sclk_io_num, spi_periph_signal[host].spiclk_in);
+			gpio_iomux_out(bus_config->sclk_io_num, spi_periph_signal[host].func, false);
+		}
+		return ESP_OK;
+	}
+
+	// Use GPIO matrix
+	if(bus_config->mosi_io_num >= 0) {
+		gpio_set_direction((gpio_num_t)bus_config->mosi_io_num, GPIO_MODE_INPUT_OUTPUT);
+		esp_rom_gpio_connect_out_signal(bus_config->mosi_io_num, spi_periph_signal[host].spid_out, false, false);
+		esp_rom_gpio_connect_in_signal(bus_config->mosi_io_num, spi_periph_signal[host].spid_in, false);
+#if CONFIG_IDF_TARGET_ESP32S2
+		PIN_INPUT_ENABLE(GPIO_PIN_MUX_REG[bus_config->mosi_io_num]);
+#endif
+		gpio_ll_iomux_func_sel(GPIO_PIN_MUX_REG[bus_config->mosi_io_num], PIN_FUNC_GPIO);
+	}
+	if(bus_config->miso_io_num >= 0) {
+		gpio_set_direction((gpio_num_t)bus_config->miso_io_num, GPIO_MODE_INPUT);
+		esp_rom_gpio_connect_in_signal(bus_config->miso_io_num, spi_periph_signal[host].spiq_in, false);
+#if CONFIG_IDF_TARGET_ESP32S2
+		PIN_INPUT_ENABLE(GPIO_PIN_MUX_REG[bus_config->miso_io_num]);
+#endif
+		gpio_ll_iomux_func_sel(GPIO_PIN_MUX_REG[bus_config->miso_io_num], PIN_FUNC_GPIO);
+	}
+	if(bus_config->quadwp_io_num >= 0) {
+		gpio_set_direction((gpio_num_t)bus_config->quadwp_io_num, GPIO_MODE_INPUT_OUTPUT);
+		esp_rom_gpio_connect_out_signal(bus_config->quadwp_io_num, spi_periph_signal[host].spiwp_out, false, false);
+		esp_rom_gpio_connect_in_signal(bus_config->quadwp_io_num, spi_periph_signal[host].spiwp_in, false);
+#if CONFIG_IDF_TARGET_ESP32S2
+		PIN_INPUT_ENABLE(GPIO_PIN_MUX_REG[bus_config->quadwp_io_num]);
+#endif
+		gpio_ll_iomux_func_sel(GPIO_PIN_MUX_REG[bus_config->quadwp_io_num], PIN_FUNC_GPIO);
+	}
+	if(bus_config->quadhd_io_num >= 0) {
+		gpio_set_direction((gpio_num_t)bus_config->quadhd_io_num, GPIO_MODE_INPUT_OUTPUT);
+		esp_rom_gpio_connect_out_signal(bus_config->quadhd_io_num, spi_periph_signal[host].spihd_out, false, false);
+		esp_rom_gpio_connect_in_signal(bus_config->quadhd_io_num, spi_periph_signal[host].spihd_in, false);
+#if CONFIG_IDF_TARGET_ESP32S2
+		PIN_INPUT_ENABLE(GPIO_PIN_MUX_REG[bus_config->quadhd_io_num]);
+#endif
+		gpio_ll_iomux_func_sel(GPIO_PIN_MUX_REG[bus_config->quadhd_io_num], PIN_FUNC_GPIO);
+	}
+	if(bus_config->sclk_io_num >= 0) {
+		gpio_set_direction((gpio_num_t)bus_config->sclk_io_num, GPIO_MODE_INPUT_OUTPUT);
+		esp_rom_gpio_connect_out_signal(bus_config->sclk_io_num, spi_periph_signal[host].spiclk_out, false, false);
+		esp_rom_gpio_connect_in_signal(bus_config->sclk_io_num, spi_periph_signal[host].spiclk_in, false);
+#if CONFIG_IDF_TARGET_ESP32S2
+		PIN_INPUT_ENABLE(GPIO_PIN_MUX_REG[bus_config->sclk_io_num]);
+#endif
+		gpio_ll_iomux_func_sel(GPIO_PIN_MUX_REG[bus_config->sclk_io_num], PIN_FUNC_GPIO);
+	}
+
+	return ESP_OK;
+}
+
 ControllerBase::ControllerBase()
 {
 	esp_trans = std::make_unique<EspTransaction>();
@@ -95,6 +264,9 @@ bool Controller::begin()
 		return false;
 	}
 
+	// bool spi_chan_claimed = spicommon_periph_claim(host_id, "spi master");
+	// SPI_CHECK(spi_chan_claimed, "host_id already in use", ESP_ERR_INVALID_STATE);
+
 	assignDefaultPins(defaultPins[unsigned(busId) - 1]);
 
 	auto getPinValue = [](uint8_t pin) -> int { return (pin == SPI_PIN_NONE) ? -1 : pin; };
@@ -109,8 +281,14 @@ bool Controller::begin()
 		.intr_flags = ESP_INTR_FLAG_LOWMED, // ESP_INTR_FLAG_IRAM,
 	};
 
-	auto err = spi_bus_initialize(spi_host_device_t(unsigned(busId) - 1), &buscfg, SPI_DMA_CH_AUTO);
+	auto host_id = spi_host_device_t(unsigned(busId) - 1);
+
+	uint32_t tx_channel;
+	uint32_t rx_channel;
+	auto err = spicommon_dma_chan_alloc(host_id, SPI_DMA_CH_AUTO, &tx_channel, &rx_channel);
+	// 	auto err = spi_bus_initialize(spi_host_device_t(unsigned(busId) - 1), &buscfg, SPI_DMA_CH_AUTO);
 	if(err != ESP_OK) {
+		debug_e("[HSPI] DMA allocation failed");
 		return false;
 	}
 
