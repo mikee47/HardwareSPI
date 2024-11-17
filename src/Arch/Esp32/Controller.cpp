@@ -19,6 +19,9 @@
  *
  ****/
 
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-parameter"
+
 #include <HSPI/Controller.h>
 #include <HSPI/Device.h>
 #include <driver/spi_master.h>
@@ -29,6 +32,10 @@
 #include <esp_private/spi_common_internal.h>
 #include <soc/gpio_periph.h>
 #include <hal/gpio_ll.h>
+#include <hal/spi_ll.h>
+#include <esp_clk_tree.h>
+
+#pragma GCC diagnostic pop
 
 namespace HSPI
 {
@@ -76,172 +83,6 @@ struct EspTransaction {
 	spi_transaction_ext_t ext;
 };
 
-#if 0
-static esp_err_t alloc_dma_chan(spi_host_device_t host_id, gdma_channel_handle_t& tx_channel,
-								gdma_channel_handle_t& rx_channel)
-{
-#if SOC_GDMA_SUPPORTED
-	assert(is_valid_host(host_id));
-	assert(dma_chan == SPI_DMA_CH_AUTO);
-
-	gdma_channel_alloc_config_t tx_alloc_config = {
-		.flags.reserve_sibling = 1,
-		.direction = GDMA_CHANNEL_DIRECTION_TX,
-	};
-	ESP_RETURN_ON_ERROR(SPI_GDMA_NEW_CHANNEL(&tx_alloc_config, &tx_channel), SPI_TAG, "alloc gdma tx failed");
-
-	gdma_channel_alloc_config_t rx_alloc_config = {
-		.direction = GDMA_CHANNEL_DIRECTION_RX,
-		.sibling_chan = ctx->tx_channel,
-	};
-	ESP_RETURN_ON_ERROR(SPI_GDMA_NEW_CHANNEL(&rx_alloc_config, &rx_channel), SPI_TAG, "alloc gdma rx failed");
-
-	if(host_id == SPI2_HOST) {
-		gdma_connect(ctx->rx_channel, GDMA_MAKE_TRIGGER(GDMA_TRIG_PERIPH_SPI, 2));
-		gdma_connect(ctx->tx_channel, GDMA_MAKE_TRIGGER(GDMA_TRIG_PERIPH_SPI, 2));
-	}
-#if(SOC_SPI_PERIPH_NUM >= 3)
-	else if(host_id == SPI3_HOST) {
-		gdma_connect(ctx->rx_channel, GDMA_MAKE_TRIGGER(GDMA_TRIG_PERIPH_SPI, 3));
-		gdma_connect(ctx->tx_channel, GDMA_MAKE_TRIGGER(GDMA_TRIG_PERIPH_SPI, 3));
-	}
-#endif
-	gdma_get_channel_id(ctx->tx_channel, (int*)out_actual_tx_dma_chan);
-	gdma_get_channel_id(ctx->rx_channel, (int*)out_actual_rx_dma_chan);
-
-#else // SOC_GDMA_SUPPORTED
-
-	bool success = false;
-	uint32_t actual_dma_chan;
-#if CONFIG_IDF_TARGET_ESP32
-	for(unsigned i = 1; i < SOC_SPI_DMA_CHAN_NUM + 1; i++) {
-		success = claim_dma_chan(i, &actual_dma_chan);
-		if(success) {
-			break;
-		}
-	}
-#elif CONFIG_IDF_TARGET_ESP32S2
-	// On ESP32S2, each SPI controller has its own DMA channel
-	success = claim_dma_chan(host_id, &actual_dma_chan);
-#endif //#if CONFIG_IDF_TARGET_XXX
-
-	//On ESP32 and ESP32S2, actual_tx_dma_chan and actual_rx_dma_chan are always same
-	*out_actual_tx_dma_chan = actual_dma_chan;
-	*out_actual_rx_dma_chan = actual_dma_chan;
-
-	if(!success) {
-		debug_e("[HSPI] no available dma channel");
-		return ESP_ERR_NOT_FOUND;
-	}
-
-	connect_spi_and_dma(host_id, *out_actual_tx_dma_chan);
-
-#endif
-
-	return ESP_OK;
-}
-
-#endif
-
-static bool check_iomux_pins(spi_host_device_t host, const spi_bus_config_t* bus_config)
-{
-	auto& sig = spi_periph_signal[host];
-	if(bus_config->sclk_io_num >= 0 && bus_config->sclk_io_num != sig.spiclk_iomux_pin) {
-		return false;
-	}
-	if(bus_config->quadwp_io_num >= 0 && bus_config->quadwp_io_num != sig.spiwp_iomux_pin) {
-		return false;
-	}
-	if(bus_config->quadhd_io_num >= 0 && bus_config->quadhd_io_num != sig.spihd_iomux_pin) {
-		return false;
-	}
-	if(bus_config->mosi_io_num >= 0 && bus_config->mosi_io_num != sig.spid_iomux_pin) {
-		return false;
-	}
-	if(bus_config->miso_io_num >= 0 && bus_config->miso_io_num != sig.spiq_iomux_pin) {
-		return false;
-	}
-	return true;
-}
-
-esp_err_t spicommon_bus_initialize_io(spi_host_device_t host, const spi_bus_config_t* bus_config)
-{
-	// Check if the selected pins correspond to the iomux pins of the peripheral
-	bool use_iomux = check_iomux_pins(host, bus_config);
-
-	if(use_iomux) {
-		if(bus_config->mosi_io_num >= 0) {
-			gpio_iomux_in(bus_config->mosi_io_num, spi_periph_signal[host].spid_in);
-			gpio_iomux_out(bus_config->mosi_io_num, spi_periph_signal[host].func, false);
-		}
-		if(bus_config->miso_io_num >= 0) {
-			gpio_iomux_in(bus_config->miso_io_num, spi_periph_signal[host].spiq_in);
-			gpio_iomux_out(bus_config->miso_io_num, spi_periph_signal[host].func, false);
-		}
-		if(bus_config->quadwp_io_num >= 0) {
-			gpio_iomux_in(bus_config->quadwp_io_num, spi_periph_signal[host].spiwp_in);
-			gpio_iomux_out(bus_config->quadwp_io_num, spi_periph_signal[host].func, false);
-		}
-		if(bus_config->quadhd_io_num >= 0) {
-			gpio_iomux_in(bus_config->quadhd_io_num, spi_periph_signal[host].spihd_in);
-			gpio_iomux_out(bus_config->quadhd_io_num, spi_periph_signal[host].func, false);
-		}
-		if(bus_config->sclk_io_num >= 0) {
-			gpio_iomux_in(bus_config->sclk_io_num, spi_periph_signal[host].spiclk_in);
-			gpio_iomux_out(bus_config->sclk_io_num, spi_periph_signal[host].func, false);
-		}
-		return ESP_OK;
-	}
-
-	// Use GPIO matrix
-	if(bus_config->mosi_io_num >= 0) {
-		gpio_set_direction((gpio_num_t)bus_config->mosi_io_num, GPIO_MODE_INPUT_OUTPUT);
-		esp_rom_gpio_connect_out_signal(bus_config->mosi_io_num, spi_periph_signal[host].spid_out, false, false);
-		esp_rom_gpio_connect_in_signal(bus_config->mosi_io_num, spi_periph_signal[host].spid_in, false);
-#if CONFIG_IDF_TARGET_ESP32S2
-		PIN_INPUT_ENABLE(GPIO_PIN_MUX_REG[bus_config->mosi_io_num]);
-#endif
-		gpio_ll_iomux_func_sel(GPIO_PIN_MUX_REG[bus_config->mosi_io_num], PIN_FUNC_GPIO);
-	}
-	if(bus_config->miso_io_num >= 0) {
-		gpio_set_direction((gpio_num_t)bus_config->miso_io_num, GPIO_MODE_INPUT);
-		esp_rom_gpio_connect_in_signal(bus_config->miso_io_num, spi_periph_signal[host].spiq_in, false);
-#if CONFIG_IDF_TARGET_ESP32S2
-		PIN_INPUT_ENABLE(GPIO_PIN_MUX_REG[bus_config->miso_io_num]);
-#endif
-		gpio_ll_iomux_func_sel(GPIO_PIN_MUX_REG[bus_config->miso_io_num], PIN_FUNC_GPIO);
-	}
-	if(bus_config->quadwp_io_num >= 0) {
-		gpio_set_direction((gpio_num_t)bus_config->quadwp_io_num, GPIO_MODE_INPUT_OUTPUT);
-		esp_rom_gpio_connect_out_signal(bus_config->quadwp_io_num, spi_periph_signal[host].spiwp_out, false, false);
-		esp_rom_gpio_connect_in_signal(bus_config->quadwp_io_num, spi_periph_signal[host].spiwp_in, false);
-#if CONFIG_IDF_TARGET_ESP32S2
-		PIN_INPUT_ENABLE(GPIO_PIN_MUX_REG[bus_config->quadwp_io_num]);
-#endif
-		gpio_ll_iomux_func_sel(GPIO_PIN_MUX_REG[bus_config->quadwp_io_num], PIN_FUNC_GPIO);
-	}
-	if(bus_config->quadhd_io_num >= 0) {
-		gpio_set_direction((gpio_num_t)bus_config->quadhd_io_num, GPIO_MODE_INPUT_OUTPUT);
-		esp_rom_gpio_connect_out_signal(bus_config->quadhd_io_num, spi_periph_signal[host].spihd_out, false, false);
-		esp_rom_gpio_connect_in_signal(bus_config->quadhd_io_num, spi_periph_signal[host].spihd_in, false);
-#if CONFIG_IDF_TARGET_ESP32S2
-		PIN_INPUT_ENABLE(GPIO_PIN_MUX_REG[bus_config->quadhd_io_num]);
-#endif
-		gpio_ll_iomux_func_sel(GPIO_PIN_MUX_REG[bus_config->quadhd_io_num], PIN_FUNC_GPIO);
-	}
-	if(bus_config->sclk_io_num >= 0) {
-		gpio_set_direction((gpio_num_t)bus_config->sclk_io_num, GPIO_MODE_INPUT_OUTPUT);
-		esp_rom_gpio_connect_out_signal(bus_config->sclk_io_num, spi_periph_signal[host].spiclk_out, false, false);
-		esp_rom_gpio_connect_in_signal(bus_config->sclk_io_num, spi_periph_signal[host].spiclk_in, false);
-#if CONFIG_IDF_TARGET_ESP32S2
-		PIN_INPUT_ENABLE(GPIO_PIN_MUX_REG[bus_config->sclk_io_num]);
-#endif
-		gpio_ll_iomux_func_sel(GPIO_PIN_MUX_REG[bus_config->sclk_io_num], PIN_FUNC_GPIO);
-	}
-
-	return ESP_OK;
-}
-
 ControllerBase::ControllerBase()
 {
 	esp_trans = std::make_unique<EspTransaction>();
@@ -278,39 +119,24 @@ bool Controller::begin()
 		.sclk_io_num = getPinValue(pins.sck),
 		.quadwp_io_num = getPinValue(pins.io2),
 		.quadhd_io_num = getPinValue(pins.io3),
-		.max_transfer_sz = 0, // Use default
-		.flags = 0,
 		.intr_flags = ESP_INTR_FLAG_LOWMED, // ESP_INTR_FLAG_IRAM,
 	};
 
-	uint32_t tx_channel;
-	uint32_t rx_channel;
-	auto err = spicommon_dma_chan_alloc(host_id, SPI_DMA_CH_AUTO, &tx_channel, &rx_channel);
-	// 	auto err = spi_bus_initialize(spi_host_device_t(unsigned(busId) - 1), &buscfg, SPI_DMA_CH_AUTO);
+	auto err = spi_bus_initialize(spi_host_device_t(unsigned(busId) - 1), &buscfg, SPI_DMA_CH_AUTO);
 	if(err != ESP_OK) {
-		debug_e("[HSPI] DMA allocation failed");
 		return false;
 	}
 
-	spicommon_bus_initialize_io(host_id);
-
 	// interrupts are not allowed on SPI1 bus
 	if(host_id != SPI1_HOST) {
-		err = esp_intr_alloc(spi_periph_signal[host_id].irq, ESP_INTR_FLAG_IRAM | ESP_INTR_FLAG_INTRDISABLED, spi_intr,
-							 host, &host->intr);
-		if(err != ESP_OK) {
-			goto cleanup;
-		}
+		err = esp_intr_alloc(spi_periph_signal[host_id].irq, ESP_INTR_FLAG_IRAM | ESP_INTR_FLAG_INTRDISABLED,
+							 intr_handler_t(isr), this, &intr_handle);
 	}
+
+	const spi_bus_attr_t* bus_attr = spi_bus_get_attr(host_id);
 
 	spi_dev_t* hw = SPI_LL_GET_HW(host_id);
 
-	//assign the SPI, RX DMA and TX DMA peripheral registers beginning address
-	spi_hal_config_t hal_config{
-		// On ESP32-S2 and earlier chips, DMA registers are part of SPI registers. Pass the registers of SPI peripheral to control it.
-		.dma_enabled = bus_attr->dma_enabled, .dmadesc_tx = bus_attr->dmadesc_tx,   .dmadesc_rx = bus_attr->dmadesc_rx,
-		.tx_dma_chan = bus_attr->tx_dma_chan, .rx_dma_chan = bus_attr->rx_dma_chan, .dmadesc_n = bus_attr->dma_desc_num,
-	};
 	spi_ll_enable_clock(host_id, true);
 
 #if SPI_LL_MOSI_FREE_LEVEL
@@ -318,10 +144,10 @@ bool Controller::begin()
 	spi_ll_set_mosi_free_level(hw, 0);
 #endif
 	spi_ll_master_init(hw);
-	spi_dma_ll_rx_enable_burst_data(hw, rx_dma_chan, 1);
-	spi_dma_ll_tx_enable_burst_data(hw, tx_dma_chan, 1);
-	spi_dma_ll_rx_enable_burst_desc(hw, rx_dma_chan, 1);
-	spi_dma_ll_tx_enable_burst_desc(hw, tx_dma_chan, 1);
+	spi_dma_ll_rx_enable_burst_data(hw, bus_attr->rx_dma_chan, 1);
+	spi_dma_ll_tx_enable_burst_data(hw, bus_attr->tx_dma_chan, 1);
+	spi_dma_ll_rx_enable_burst_desc(hw, bus_attr->rx_dma_chan, 1);
+	spi_dma_ll_tx_enable_burst_desc(hw, bus_attr->tx_dma_chan, 1);
 
 	spi_ll_enable_int(hw);
 	spi_ll_set_int_stat(hw);
@@ -338,6 +164,9 @@ void Controller::end()
 		return;
 	}
 
+	auto host_id = spi_host_device_t(getHost());
+	spi_bus_free(host_id);
+
 	flags.initialised = false;
 
 	// Check all devices have been released
@@ -350,7 +179,7 @@ IoModes Controller::getSupportedIoModes(const Device& dev) const
 	return dev.getSupportedIoModes();
 }
 
-void IRAM_ATTR isr(Controller* spi)
+void IRAM_ATTR Controller::isr(Controller* spi)
 {
 	spi->transactionDone();
 }
@@ -372,50 +201,35 @@ bool Controller::startDevice(Device& dev, PinSet pinSet, uint8_t chipSelect, uin
 		return false;
 	}
 
-	spi_device_interface_config_t devcfg{
-		.mode = uint8_t(dev.getClockMode()),
-		.clock_speed_hz = int(clockSpeed),
-		.spics_io_num = (chipSelect == SPI_PIN_NONE) ? GPIO_NUM_NC : chipSelect,
-		.flags = 0,
-		.queue_size = 1,
-		.pre_cb = pre_transfer_callback,
-		.post_cb = post_transfer_callback,
-	};
+	// spi_device_interface_config_t devcfg{
+	// 	.mode = uint8_t(dev.getClockMode()),
+	// 	.clock_speed_hz = int(clockSpeed),
+	// 	.spics_io_num = (chipSelect == SPI_PIN_NONE) ? GPIO_NUM_NC : chipSelect,
+	// 	.flags = 0,
+	// 	.queue_size = 1,
+	// 	.pre_cb = pre_transfer_callback,
+	// 	.post_cb = post_transfer_callback,
+	// };
 	auto ioMode = dev.getIoMode();
-	if(ioMode == IoMode::SPI) {
-		devcfg.flags |= SPI_DEVICE_HALFDUPLEX;
-	} else if(ioMode == IoMode::SPI3WIRE) {
-		devcfg.flags |= SPI_DEVICE_HALFDUPLEX | SPI_DEVICE_3WIRE;
-	}
-
-	// auto err = spi_bus_add_device(spi_host_device_t(unsigned(busId) - 1), &devcfg, &dev.config.handle);
-	// if(err != ESP_OK) {
-	// 	return false;
-	// }
-
-	spi_device_t* dev = NULL;
-	esp_err_t err = ESP_OK;
 
 	uint32_t clock_source_hz = 0;
-	esp_clk_tree_src_get_freq_hz(SPI_CLK_SRC_DEFAULT, ESP_CLK_TREE_SRC_FREQ_PRECISION_APPROX, &clock_source_hz);
+	esp_clk_tree_src_get_freq_hz(soc_module_clk_t(SPI_CLK_SRC_DEFAULT), ESP_CLK_TREE_SRC_FREQ_PRECISION_APPROX,
+								 &clock_source_hz);
 	// SPI_CHECK((dev_config->clock_speed_hz > 0) && (dev_config->clock_speed_hz <= clock_source_hz), "invalid sclk speed", ESP_ERR_INVALID_ARG);
 
 	int freecs = 0; // spi_bus_lock_get_dev_id(dev_handle);
 	// SPI_CHECK(freecs != -1, "no free cs pins for the host", ESP_ERR_NOT_FOUND);
 
 	//input parameters to calculate timing configuration
-	int half_duplex = dev_config->flags & SPI_DEVICE_HALFDUPLEX ? 1 : 0;
-	int no_compensate = dev_config->flags & SPI_DEVICE_NO_DUMMY ? 1 : 0;
-	int duty_cycle = (dev_config->duty_cycle_pos == 0) ? 128 : dev_config->duty_cycle_pos;
-	int use_gpio = !(bus_attr->flags & SPICOMMON_BUSFLAG_IOMUX_PINS);
+	int half_duplex = (ioMode == IoMode::SPI || ioMode == IoMode::SPI3WIRE) ? 1 : 0;
 	spi_hal_timing_param_t timing_param{
 		.half_duplex = half_duplex,
-		.no_compensate = no_compensate,
+		.no_compensate = 0,
 		.clk_src_hz = clock_source_hz,
 		.expected_freq = dev_config->clock_speed_hz,
-		.duty_cycle = duty_cycle,
+		.duty_cycle = 128,
 		.input_delay_ns = dev_config->input_delay_ns,
-		.use_gpio = use_gpio,
+		.use_gpio = !(bus_attr->flags & SPICOMMON_BUSFLAG_IOMUX_PINS),
 	};
 	spi_hal_timing_conf_t temp_timing_conf;
 	int freq;
@@ -436,7 +250,7 @@ bool Controller::startDevice(Device& dev, PinSet pinSet, uint8_t chipSelect, uin
 
 	// initialise the device specific configuration
 	spi_hal_dev_config_t* hal_dev = &(dev->hal_dev);
-	hal_dev->mode = dev_config->mode;
+	hal_dev->mode = dev.getClockMode();
 	hal_dev->cs_setup = dev_config->cs_ena_pretrans;
 	hal_dev->cs_hold = dev_config->cs_ena_posttrans;
 	//set hold_time to 0 will not actually append delay to CS
@@ -446,15 +260,15 @@ bool Controller::startDevice(Device& dev, PinSet pinSet, uint8_t chipSelect, uin
 	}
 	hal_dev->cs_pin_id = dev->id;
 	hal_dev->timing_conf = temp_timing_conf;
-	hal_dev->sio = (dev_config->flags) & SPI_DEVICE_3WIRE ? 1 : 0;
-	hal_dev->half_duplex = dev_config->flags & SPI_DEVICE_HALFDUPLEX ? 1 : 0;
-	hal_dev->tx_lsbfirst = dev_config->flags & SPI_DEVICE_TXBIT_LSBFIRST ? 1 : 0;
-	hal_dev->rx_lsbfirst = dev_config->flags & SPI_DEVICE_RXBIT_LSBFIRST ? 1 : 0;
-	hal_dev->no_compensate = dev_config->flags & SPI_DEVICE_NO_DUMMY ? 1 : 0;
+	hal_dev->sio = (ioMode == IoMode::SPI3WIRE) ? 1 : 0;
+	hal_dev->half_duplex = half_duplex;
+	hal_dev->tx_lsbfirst = 0;
+	hal_dev->rx_lsbfirst = 0;
+	hal_dev->no_compensate = 0;
 #if SOC_SPI_AS_CS_SUPPORTED
-	hal_dev->as_cs = dev_config->flags & SPI_DEVICE_CLK_AS_CS ? 1 : 0;
+	hal_dev->as_cs = 0;
 #endif
-	hal_dev->positive_cs = dev_config->flags & SPI_DEVICE_POSITIVE_CS ? 1 : 0;
+	hal_dev->positive_cs = 0;
 
 	//
 	++deviceCount;
@@ -664,7 +478,7 @@ void IRAM_ATTR Controller::startRequest()
 		// void spi_hal_setup_device(spi_hal_context_t *hal, const spi_hal_dev_config_t *dev)
 		// Configure clock settings
 #if SOC_SPI_AS_CS_SUPPORTED
-		spi_ll_master_set_cksel(hw, dev->cs_pin_id, dev->as_cs);
+		spi_ll_master_set_cksel(hw, dev->cs_pin_id, 0);
 #endif
 		spi_ll_master_set_pos_cs(hw, dev->cs_pin_id, dev->positive_cs);
 		spi_ll_master_set_clock_by_reg(hw, &dev->timing_conf.clock_reg);
@@ -763,11 +577,11 @@ void IRAM_ATTR Controller::startRequest()
 void IRAM_ATTR Controller::nextTransaction()
 {
 #if CONFIG_IDF_TARGET_ESP32
-		if(bus_attr->dma_enabled && (cur_trans_buf->buffer_to_rcv || cur_trans_buf->buffer_to_send)) {
-			// mark channel as active, so that the DMA will not be reset by the slave
-			// This workaround is only for esp32, where tx_dma_chan and rx_dma_chan are always same
-			spicommon_dmaworkaround_transfer_active(bus_attr->tx_dma_chan);
-		}
+	if(bus_attr->dma_enabled && (cur_trans_buf->buffer_to_rcv || cur_trans_buf->buffer_to_send)) {
+		// mark channel as active, so that the DMA will not be reset by the slave
+		// This workaround is only for esp32, where tx_dma_chan and rx_dma_chan are always same
+		spicommon_dmaworkaround_transfer_active(bus_attr->tx_dma_chan);
+	}
 #endif //#if CONFIG_IDF_TARGET_ESP32
 
 	auto& req = *trans.request;
@@ -907,8 +721,8 @@ void IRAM_ATTR Controller::transactionDone()
 	assert(spi_ll_usr_is_done(hw));
 
 #if CONFIG_IDF_TARGET_ESP32
-		// This workaround is only for esp32, where tx_dma_chan and rx_dma_chan are always same
-		spicommon_dmaworkaround_idle(bus_attr->tx_dma_chan);
+	// This workaround is only for esp32, where tx_dma_chan and rx_dma_chan are always same
+	spicommon_dmaworkaround_idle(bus_attr->tx_dma_chan);
 #endif
 
 	auto& req = *trans.request;

@@ -24,6 +24,8 @@
 #include <cstdint>
 #include <soc/soc_caps.h>
 
+struct intr_handle_data_t;
+
 namespace HSPI
 {
 /**
@@ -60,6 +62,7 @@ protected:
 		bool initialised : 1;
 	};
 
+	intr_handle_data_t* intr_handle;
 	std::unique_ptr<EspTransaction> esp_trans;
 	std::unique_ptr<uint32_t[]> dmaBuffer;
 	uint8_t deviceCount{0};
