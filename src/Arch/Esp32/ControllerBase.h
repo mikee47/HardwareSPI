@@ -24,9 +24,6 @@
 #include <cstdint>
 #include <soc/soc_caps.h>
 
-struct spi_transaction_t;
-struct spi_device_t;
-
 namespace HSPI
 {
 /**
@@ -43,7 +40,6 @@ enum class SpiBus {
 };
 
 struct DeviceConfig {
-	spi_device_t* handle;
 };
 
 struct EspTransaction;

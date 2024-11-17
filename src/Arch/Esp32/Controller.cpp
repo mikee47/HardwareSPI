@@ -267,7 +267,9 @@ bool Controller::begin()
 	// bool spi_chan_claimed = spicommon_periph_claim(host_id, "spi master");
 	// SPI_CHECK(spi_chan_claimed, "host_id already in use", ESP_ERR_INVALID_STATE);
 
-	assignDefaultPins(defaultPins[unsigned(busId) - 1]);
+	auto host_id = spi_host_device_t(getHost());
+
+	assignDefaultPins(defaultPins[host_id]);
 
 	auto getPinValue = [](uint8_t pin) -> int { return (pin == SPI_PIN_NONE) ? -1 : pin; };
 	spi_bus_config_t buscfg = {
@@ -281,8 +283,6 @@ bool Controller::begin()
 		.intr_flags = ESP_INTR_FLAG_LOWMED, // ESP_INTR_FLAG_IRAM,
 	};
 
-	auto host_id = spi_host_device_t(unsigned(busId) - 1);
-
 	uint32_t tx_channel;
 	uint32_t rx_channel;
 	auto err = spicommon_dma_chan_alloc(host_id, SPI_DMA_CH_AUTO, &tx_channel, &rx_channel);
@@ -291,6 +291,42 @@ bool Controller::begin()
 		debug_e("[HSPI] DMA allocation failed");
 		return false;
 	}
+
+	spicommon_bus_initialize_io(host_id);
+
+	// interrupts are not allowed on SPI1 bus
+	if(host_id != SPI1_HOST) {
+		err = esp_intr_alloc(spi_periph_signal[host_id].irq, ESP_INTR_FLAG_IRAM | ESP_INTR_FLAG_INTRDISABLED, spi_intr,
+							 host, &host->intr);
+		if(err != ESP_OK) {
+			goto cleanup;
+		}
+	}
+
+	spi_dev_t* hw = SPI_LL_GET_HW(host_id);
+
+	//assign the SPI, RX DMA and TX DMA peripheral registers beginning address
+	spi_hal_config_t hal_config{
+		// On ESP32-S2 and earlier chips, DMA registers are part of SPI registers. Pass the registers of SPI peripheral to control it.
+		.dma_enabled = bus_attr->dma_enabled, .dmadesc_tx = bus_attr->dmadesc_tx,   .dmadesc_rx = bus_attr->dmadesc_rx,
+		.tx_dma_chan = bus_attr->tx_dma_chan, .rx_dma_chan = bus_attr->rx_dma_chan, .dmadesc_n = bus_attr->dma_desc_num,
+	};
+	spi_ll_enable_clock(host_id, true);
+
+#if SPI_LL_MOSI_FREE_LEVEL
+	// Change default data line level to low which same as esp32
+	spi_ll_set_mosi_free_level(hw, 0);
+#endif
+	spi_ll_master_init(hw);
+	spi_dma_ll_rx_enable_burst_data(hw, rx_dma_chan, 1);
+	spi_dma_ll_tx_enable_burst_data(hw, tx_dma_chan, 1);
+	spi_dma_ll_rx_enable_burst_desc(hw, rx_dma_chan, 1);
+	spi_dma_ll_tx_enable_burst_desc(hw, tx_dma_chan, 1);
+
+	spi_ll_enable_int(hw);
+	spi_ll_set_int_stat(hw);
+	spi_ll_set_mosi_delay(hw, 0, 0);
+	spi_ll_apply_config(hw);
 
 	flags.initialised = true;
 	return true;
@@ -314,17 +350,9 @@ IoModes Controller::getSupportedIoModes(const Device& dev) const
 	return dev.getSupportedIoModes();
 }
 
-void IRAM_ATTR Controller::pre_transfer_callback(spi_transaction_t* t)
+void IRAM_ATTR isr(Controller* spi)
 {
-	auto self = static_cast<Controller*>(t->user);
-	auto req = self->trans.request;
-	req->device->transferStarting(*req);
-}
-
-void IRAM_ATTR Controller::post_transfer_callback(spi_transaction_t* t)
-{
-	auto self = static_cast<Controller*>(t->user);
-	self->transactionDone();
+	spi->transactionDone();
 }
 
 bool Controller::startDevice(Device& dev, PinSet pinSet, uint8_t chipSelect, uint32_t clockSpeed)
@@ -360,11 +388,75 @@ bool Controller::startDevice(Device& dev, PinSet pinSet, uint8_t chipSelect, uin
 		devcfg.flags |= SPI_DEVICE_HALFDUPLEX | SPI_DEVICE_3WIRE;
 	}
 
-	auto err = spi_bus_add_device(spi_host_device_t(unsigned(busId) - 1), &devcfg, &dev.config.handle);
-	if(err != ESP_OK) {
-		return false;
+	// auto err = spi_bus_add_device(spi_host_device_t(unsigned(busId) - 1), &devcfg, &dev.config.handle);
+	// if(err != ESP_OK) {
+	// 	return false;
+	// }
+
+	spi_device_t* dev = NULL;
+	esp_err_t err = ESP_OK;
+
+	uint32_t clock_source_hz = 0;
+	esp_clk_tree_src_get_freq_hz(SPI_CLK_SRC_DEFAULT, ESP_CLK_TREE_SRC_FREQ_PRECISION_APPROX, &clock_source_hz);
+	// SPI_CHECK((dev_config->clock_speed_hz > 0) && (dev_config->clock_speed_hz <= clock_source_hz), "invalid sclk speed", ESP_ERR_INVALID_ARG);
+
+	int freecs = 0; // spi_bus_lock_get_dev_id(dev_handle);
+	// SPI_CHECK(freecs != -1, "no free cs pins for the host", ESP_ERR_NOT_FOUND);
+
+	//input parameters to calculate timing configuration
+	int half_duplex = dev_config->flags & SPI_DEVICE_HALFDUPLEX ? 1 : 0;
+	int no_compensate = dev_config->flags & SPI_DEVICE_NO_DUMMY ? 1 : 0;
+	int duty_cycle = (dev_config->duty_cycle_pos == 0) ? 128 : dev_config->duty_cycle_pos;
+	int use_gpio = !(bus_attr->flags & SPICOMMON_BUSFLAG_IOMUX_PINS);
+	spi_hal_timing_param_t timing_param{
+		.half_duplex = half_duplex,
+		.no_compensate = no_compensate,
+		.clk_src_hz = clock_source_hz,
+		.expected_freq = dev_config->clock_speed_hz,
+		.duty_cycle = duty_cycle,
+		.input_delay_ns = dev_config->input_delay_ns,
+		.use_gpio = use_gpio,
+	};
+	spi_hal_timing_conf_t temp_timing_conf;
+	int freq;
+	esp_err_t ret = spi_hal_cal_clock_conf(&timing_param, &freq, &temp_timing_conf);
+	temp_timing_conf.clock_source = clk_src;
+	SPI_CHECK(ret == ESP_OK, "assigned clock speed not supported", ret);
+
+	// dev->id = freecs;
+
+	// dev->cfg.duty_cycle_pos = duty_cycle;
+	// dev->real_clk_freq_hz = freq;
+	// TODO: if we have to change the apb clock among transactions, re-calculate this each time the apb clock lock is locked.
+
+	// Set CS pin, CS options
+	if(dev_config->spics_io_num >= 0) {
+		spicommon_cs_initialize(host_id, dev_config->spics_io_num, freecs, use_gpio);
 	}
 
+	// initialise the device specific configuration
+	spi_hal_dev_config_t* hal_dev = &(dev->hal_dev);
+	hal_dev->mode = dev_config->mode;
+	hal_dev->cs_setup = dev_config->cs_ena_pretrans;
+	hal_dev->cs_hold = dev_config->cs_ena_posttrans;
+	//set hold_time to 0 will not actually append delay to CS
+	//set it to 1 since we do need at least one clock of hold time in most cases
+	if(hal_dev->cs_hold == 0) {
+		hal_dev->cs_hold = 1;
+	}
+	hal_dev->cs_pin_id = dev->id;
+	hal_dev->timing_conf = temp_timing_conf;
+	hal_dev->sio = (dev_config->flags) & SPI_DEVICE_3WIRE ? 1 : 0;
+	hal_dev->half_duplex = dev_config->flags & SPI_DEVICE_HALFDUPLEX ? 1 : 0;
+	hal_dev->tx_lsbfirst = dev_config->flags & SPI_DEVICE_TXBIT_LSBFIRST ? 1 : 0;
+	hal_dev->rx_lsbfirst = dev_config->flags & SPI_DEVICE_RXBIT_LSBFIRST ? 1 : 0;
+	hal_dev->no_compensate = dev_config->flags & SPI_DEVICE_NO_DUMMY ? 1 : 0;
+#if SOC_SPI_AS_CS_SUPPORTED
+	hal_dev->as_cs = dev_config->flags & SPI_DEVICE_CLK_AS_CS ? 1 : 0;
+#endif
+	hal_dev->positive_cs = dev_config->flags & SPI_DEVICE_POSITIVE_CS ? 1 : 0;
+
+	//
 	++deviceCount;
 	dev.pinSet = pinSet;
 	dev.chipSelect = chipSelect;
@@ -391,8 +483,13 @@ void Controller::stopDevice(Device& dev)
 		return;
 	}
 
-	auto err = spi_bus_remove_device(spi_device_handle_t(dev.config.handle));
-	dev.config.handle = nullptr;
+	int spics_io_num = handle->cfg.spics_io_num;
+	if(spics_io_num >= 0) {
+		spicommon_cs_free_io(spics_io_num);
+	}
+
+	// auto err = spi_bus_remove_device(spi_device_handle_t(dev.config.handle));
+	// dev.config.handle = nullptr;
 	if(err == ESP_OK) {
 		debug_i("[SPI] Bus %u, CS #%u released", unsigned(busId), dev.chipSelect);
 	} else {
@@ -417,8 +514,7 @@ uint32_t Controller::setClockSpeed(Device& dev, uint32_t freq)
 		// Need to remove and re-initialise the device
 		auto pinSet = dev.pinSet;
 		auto chipSelect = dev.chipSelect;
-		stopDevice(dev);
-		startDevice(dev, pinSet, chipSelect, freq);
+		// TODO
 	} else {
 		dev.speed = freq;
 	}
@@ -561,11 +657,119 @@ void IRAM_ATTR Controller::startRequest()
 	// Setup dummy bits
 	t.dummy_bits = req.dummyLen;
 
+	spi_dev_t* hw = hal->hw;
+
+	// errcode = spi_device_queue_trans_from_isr(dev.config.handle, &t.base);
+	if(selected device changed) {
+		// void spi_hal_setup_device(spi_hal_context_t *hal, const spi_hal_dev_config_t *dev)
+		// Configure clock settings
+#if SOC_SPI_AS_CS_SUPPORTED
+		spi_ll_master_set_cksel(hw, dev->cs_pin_id, dev->as_cs);
+#endif
+		spi_ll_master_set_pos_cs(hw, dev->cs_pin_id, dev->positive_cs);
+		spi_ll_master_set_clock_by_reg(hw, &dev->timing_conf.clock_reg);
+		// Configure bit order
+		spi_ll_set_rx_lsbfirst(hw, dev->rx_lsbfirst);
+		spi_ll_set_tx_lsbfirst(hw, dev->tx_lsbfirst);
+		spi_ll_master_set_mode(hw, dev->mode);
+		// Configure misc stuff
+		spi_ll_set_half_duplex(hw, dev->half_duplex);
+		spi_ll_set_sio_mode(hw, dev->sio);
+		// Configure CS pin and timing
+		spi_ll_master_set_cs_setup(hw, dev->cs_setup);
+		spi_ll_master_set_cs_hold(hw, dev->cs_hold);
+		spi_ll_master_select_cs(hw, dev->cs_pin_id);
+		// Clock
+		spi_ll_set_clk_source(hal->hw, hal_dev->timing_conf.clock_source);
+	}
+
+	// void spi_hal_setup_trans(spi_hal_context_t *hal, const spi_hal_dev_config_t *dev, const spi_hal_trans_config_t *trans)
+	// clear int bit
+	spi_ll_clear_int_stat(hal->hw);
+	// We should be done with the transmission.
+	HAL_ASSERT(spi_ll_get_running_cmd(hw) == 0);
+	// set transaction line mode
+	spi_ll_master_set_line_mode(hw, trans->line_mode);
+
+	int extra_dummy = 0;
+	// when no_dummy is not set and in half-duplex mode, sets the dummy bit if RX phase exist
+	if(trans->rcv_buffer && !dev->no_compensate && dev->half_duplex) {
+		extra_dummy = dev->timing_conf.timing_dummy;
+	}
+
+	// SPI iface needs to be configured for a delay in some cases.
+	// configure dummy bits
+	spi_ll_set_dummy(hw, extra_dummy + trans->dummy_bits);
+
+	uint32_t miso_delay_num = 0;
+	uint32_t miso_delay_mode = 0;
+	if(dev->timing_conf.timing_miso_delay < 0) {
+		//if the data comes too late, delay half a SPI clock to improve reading
+		switch(dev->mode) {
+		case 0:
+			miso_delay_mode = 2;
+			break;
+		case 1:
+			miso_delay_mode = 1;
+			break;
+		case 2:
+			miso_delay_mode = 1;
+			break;
+		case 3:
+			miso_delay_mode = 2;
+			break;
+		}
+		miso_delay_num = 0;
+	} else {
+		//if the data is so fast that dummy_bit is used, delay some apb clocks to meet the timing
+		miso_delay_num = extra_dummy ? dev->timing_conf.timing_miso_delay : 0;
+		miso_delay_mode = 0;
+	}
+	spi_ll_set_miso_delay(hw, miso_delay_mode, miso_delay_num);
+
+	spi_ll_set_mosi_bitlen(hw, trans->tx_bitlen);
+
+	if(dev->half_duplex) {
+		spi_ll_set_miso_bitlen(hw, trans->rx_bitlen);
+	} else {
+		// rxlength is not used in full-duplex mode
+		spi_ll_set_miso_bitlen(hw, trans->tx_bitlen);
+	}
+
+	//Configure bit sizes, load addr and command
+	int cmdlen = trans->cmd_bits;
+	int addrlen = trans->addr_bits;
+	if(!dev->half_duplex && dev->cs_setup != 0) {
+		/* The command and address phase is not compatible with cs_ena_pretrans
+         * in full duplex mode.
+         */
+		cmdlen = 0;
+		addrlen = 0;
+	}
+
+	spi_ll_set_addr_bitlen(hw, addrlen);
+	spi_ll_set_command_bitlen(hw, cmdlen);
+
+	spi_ll_set_command(hw, trans->cmd, cmdlen, dev->tx_lsbfirst);
+	spi_ll_set_address(hw, trans->addr, addrlen, dev->tx_lsbfirst);
+
+	//Configure keep active CS
+	spi_ll_master_keep_cs(hw, trans->cs_keep_active);
+
+	//
 	nextTransaction();
 }
 
 void IRAM_ATTR Controller::nextTransaction()
 {
+#if CONFIG_IDF_TARGET_ESP32
+		if(bus_attr->dma_enabled && (cur_trans_buf->buffer_to_rcv || cur_trans_buf->buffer_to_send)) {
+			// mark channel as active, so that the DMA will not be reset by the slave
+			// This workaround is only for esp32, where tx_dma_chan and rx_dma_chan are always same
+			spicommon_dmaworkaround_transfer_active(bus_attr->tx_dma_chan);
+		}
+#endif //#if CONFIG_IDF_TARGET_ESP32
+
 	auto& req = *trans.request;
 	auto& dev = *req.device;
 
@@ -636,7 +840,62 @@ void IRAM_ATTR Controller::nextTransaction()
 #endif
 
 	// Execute now
-	errcode = spi_device_queue_trans_from_isr(dev.config.handle, &t.base);
+	// void spi_hal_prepare_data(spi_hal_context_t *hal, const spi_hal_dev_config_t *dev, const spi_hal_trans_config_t *trans)
+	spi_dev_t* hw = hal->hw;
+
+	// Fill DMA descriptors
+	if(trans->rcv_buffer) {
+		if(!hal->dma_enabled) {
+			// No need to setup anything; we'll copy the result out of the work registers directly later.
+		} else {
+			s_spi_hal_dma_desc_setup_link(hal->dmadesc_rx, trans->rcv_buffer, ((trans->rx_bitlen + 7) / 8), true);
+
+			spi_dma_ll_rx_reset(hal->dma_in, hal->rx_dma_chan);
+			spi_ll_dma_rx_fifo_reset(hal->hw);
+			spi_ll_infifo_full_clr(hal->hw);
+			spi_ll_dma_rx_enable(hal->hw, 1);
+			spi_dma_ll_rx_start(hal->dma_in, hal->rx_dma_chan, (lldesc_t*)hal->dmadesc_rx);
+		}
+
+	} else {
+#if CONFIG_IDF_TARGET_ESP32
+		// DMA temporary workaround: let RX DMA work somehow to avoid the issue in ESP32 v0/v1 silicon
+		if(hal->dma_enabled && !dev->half_duplex) {
+			spi_ll_dma_rx_enable(hal->hw, 1);
+			spi_dma_ll_rx_start(hal->dma_in, hal->rx_dma_chan, 0);
+		}
+#endif
+	}
+
+	if(trans->send_buffer) {
+		if(!hal->dma_enabled) {
+			// Need to copy data to registers manually
+			spi_ll_write_buffer(hw, trans->send_buffer, trans->tx_bitlen);
+		} else {
+			s_spi_hal_dma_desc_setup_link(hal->dmadesc_tx, trans->send_buffer, (trans->tx_bitlen + 7) / 8, false);
+
+			spi_dma_ll_tx_reset(hal->dma_out, hal->tx_dma_chan);
+			spi_ll_dma_tx_fifo_reset(hal->hw);
+			spi_ll_outfifo_empty_clr(hal->hw);
+			spi_ll_dma_tx_enable(hal->hw, 1);
+			spi_dma_ll_tx_start(hal->dma_out, hal->tx_dma_chan, (lldesc_t*)hal->dmadesc_tx);
+		}
+	}
+
+	// in ESP32 these registers should be configured after the DMA is set
+	if((!dev->half_duplex && trans->rcv_buffer) || trans->send_buffer) {
+		spi_ll_enable_mosi(hw, 1);
+	} else {
+		spi_ll_enable_mosi(hw, 0);
+	}
+	spi_ll_enable_miso(hw, (trans->rcv_buffer) ? 1 : 0);
+
+	//
+	req->device->transferStarting(*req);
+
+	// Kick off transfer
+	spi_ll_apply_config(hw);
+	spi_ll_user_start(hw);
 }
 
 /*
@@ -645,6 +904,13 @@ void IRAM_ATTR Controller::nextTransaction()
  */
 void IRAM_ATTR Controller::transactionDone()
 {
+	assert(spi_ll_usr_is_done(hw));
+
+#if CONFIG_IDF_TARGET_ESP32
+		// This workaround is only for esp32, where tx_dma_chan and rx_dma_chan are always same
+		spicommon_dmaworkaround_idle(bus_attr->tx_dma_chan);
+#endif
+
 	auto& req = *trans.request;
 	auto& dev = *req.device;
 
