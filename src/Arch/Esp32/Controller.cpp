@@ -279,7 +279,10 @@ void Controller::execute(Request& req)
 	   This call does a bit more than that unfortunately.
 	   Calling portDISABLE_INTERRUPTS() doesn't do the job.
 	 */
-	spi_device_acquire_bus(req.device->config.handle, portMAX_DELAY);
+	// auto err = spi_device_acquire_bus(req.device->config.handle, portMAX_DELAY);
+	// if(err) {
+	// 	debug_e("[HSPI] spi_device_acquire_bus failed, %d", err);
+	// }
 	if(trans.busy) {
 		// Tack new packet onto end of chain
 		auto pkt = trans.request;
@@ -291,8 +294,11 @@ void Controller::execute(Request& req)
 		// Not currently running, so do this one now
 		trans.request = &req;
 		startRequest();
+		if(errcode) {
+			debug_e("[HSPI] TRANSACTION FAILURE %d", errcode);
+		}
 	}
-	spi_device_release_bus(req.device->config.handle);
+	// spi_device_release_bus(req.device->config.handle);
 
 	if(!req.async) {
 		// Block and poll
@@ -452,7 +458,7 @@ void IRAM_ATTR Controller::nextTransaction()
 #endif
 
 	// Execute now
-	spi_device_queue_trans_from_isr(dev.config.handle, &t.base);
+	errcode = spi_device_queue_trans_from_isr(dev.config.handle, &t.base);
 }
 
 /*

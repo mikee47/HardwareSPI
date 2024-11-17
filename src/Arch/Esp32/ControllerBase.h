@@ -68,6 +68,7 @@ protected:
 	std::unique_ptr<uint32_t[]> dmaBuffer;
 	uint8_t deviceCount{0};
 	Flags flags{};
+	int errcode{};
 };
 
 } // namespace HSPI

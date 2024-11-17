@@ -245,8 +245,8 @@ private:
 		IoMode ioMode;
 #endif
 		// Flags
-		uint8_t bitOrder : 1;
-		volatile uint8_t busy : 1;
+		bool bitOrder;
+		volatile bool busy;
 #ifdef ARCH_ESP8266
 		uint8_t addrShift;	///< How many bits to shift address left
 		uint32_t addrCmdMask; ///< In SDI/SQI modes this is combined with address
