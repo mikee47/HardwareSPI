@@ -159,6 +159,9 @@ bool Controller::begin()
 		.intr_flags = ESP_INTR_FLAG_LOWMED, // ESP_INTR_FLAG_IRAM,
 	};
 
+	debug_i("[HSPI] host %u, mosi %u, miso %u, sclk %u, io2 %u, io3 %u", host_id, buscfg.mosi_io_num,
+			buscfg.miso_io_num, buscfg.sclk_io_num, buscfg.quadwp_io_num, buscfg.quadhd_io_num);
+
 	auto err = spi_bus_initialize(spi_host_device_t(unsigned(busId) - 1), &buscfg, SPI_DMA_CH_AUTO);
 	if(err != ESP_OK) {
 		return false;
@@ -201,6 +204,9 @@ void Controller::end()
 		return;
 	}
 
+	esp_intr_free(intr_handle);
+	intr_handle = nullptr;
+
 	auto host_id = spi_host_device_t(getHost());
 	spi_bus_free(host_id);
 
@@ -238,8 +244,13 @@ bool Controller::startDevice(Device& dev, PinSet pinSet, uint8_t chipSelect, uin
 		return false;
 	}
 
-	auto host_id = spi_host_device_t();
+	auto host_id = spi_host_device_t(getHost());
 	auto bus_attr = spi_bus_get_attr(host_id);
+
+	if(!bus_attr) {
+		debug_e("[HSPI] No bus_attr!");
+		return false;
+	}
 
 	auto& cfg = dev.config;
 	cfg.cs_id = 255;
@@ -266,7 +277,9 @@ bool Controller::startDevice(Device& dev, PinSet pinSet, uint8_t chipSelect, uin
 
 	// Set CS pin, CS options
 	bool use_gpio = !(bus_attr->flags & SPICOMMON_BUSFLAG_IOMUX_PINS);
-	spicommon_cs_initialize(host_id, dev.chipSelect, cfg.cs_id, use_gpio);
+
+	debug_i("[HSPI] host_id %u, cs_pin %u, cs_id %u, use_gpio %u", host_id, chipSelect, cfg.cs_id, use_gpio);
+	spicommon_cs_initialize(host_id, chipSelect, cfg.cs_id, use_gpio);
 
 	//
 	++deviceCount;
@@ -274,7 +287,8 @@ bool Controller::startDevice(Device& dev, PinSet pinSet, uint8_t chipSelect, uin
 	dev.chipSelect = chipSelect;
 	dev.speed = clockSpeed; // IDF doesn't report back actual clock speed
 
-	debug_i("[SPI] Bus %u, CS #%u acquired", unsigned(busId), chipSelect);
+	debug_i("[HSPI] Bus %u, CS #%u acquired", unsigned(busId), chipSelect);
+
 	return true;
 }
 
@@ -335,7 +349,7 @@ uint32_t Controller::setClockSpeed(Device& dev, uint32_t freq)
 	if(err) {
 		debug_e("[HSPI] Unsupported clock speed %u", dev.speed);
 	} else {
-		debug_i("[HSPI] Requested clock %u, got %d", dev.speed, real_freq);
+		debug_i("[HSPI] Requested clock %u, got %d", freq, real_freq);
 		cfg.timing.clock_source = SPI_CLK_SRC_DEFAULT;
 		dev.speed = real_freq;
 	}
