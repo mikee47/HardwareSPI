@@ -79,10 +79,6 @@ const SpiPins defaultPins[]{
 #endif
 };
 
-struct EspTransaction {
-	spi_transaction_ext_t ext;
-};
-
 #if SOC_NON_CACHEABLE_OFFSET
 #define ADDR_DMA_2_CPU(addr) ((typeof(addr))((uint32_t)(addr) + SOC_NON_CACHEABLE_OFFSET))
 #define ADDR_CPU_2_DMA(addr) ((typeof(addr))((uint32_t)(addr)-SOC_NON_CACHEABLE_OFFSET))
@@ -122,7 +118,6 @@ void dma_desc_setup_link(spi_dma_desc_t* dmadesc, void* data, uint32_t len, bool
 
 ControllerBase::ControllerBase()
 {
-	esp_trans = std::make_unique<EspTransaction>();
 	dmaBuffer.reset(new uint32_t[hardwareBufferSize / sizeof(uint32_t)]);
 }
 
@@ -171,6 +166,7 @@ bool Controller::begin()
 	if(host_id != SPI1_HOST) {
 		err = esp_intr_alloc(spi_periph_signal[host_id].irq, ESP_INTR_FLAG_IRAM | ESP_INTR_FLAG_INTRDISABLED,
 							 intr_handler_t(isr), this, &intr_handle);
+		debug_i("[HSPI] intr_alloc %u -> %u", spi_periph_signal[host_id].irq, err);
 	}
 
 	const spi_bus_attr_t* bus_attr = spi_bus_get_attr(host_id);
@@ -336,7 +332,7 @@ uint32_t Controller::setClockSpeed(Device& dev, uint32_t freq)
 	auto ioMode = dev.getIoMode();
 	spi_hal_timing_param_t timing_param{
 		.clk_src_hz = clock_source_hz,
-		.half_duplex = ioMode == IoMode::SPI || ioMode == IoMode::SPI3WIRE,
+		.half_duplex = !(ioMode == IoMode::SPI || ioMode == IoMode::SPI3WIRE),
 		.no_compensate = 0,
 		.expected_freq = freq,
 		.duty_cycle = 128,
@@ -379,20 +375,16 @@ void Controller::execute(Request& req)
 		return;
 	}
 
+	// debug_i("[HSPI] Req CMD 0x%x (%u), ADDR 0x%x (%u), DOUT %u, DIN %u", req.cmd, req.cmdLen, req.addr, req.addrLen,
+	// 		req.out.length, req.in.length);
+
 	req.next = nullptr;
 	req.busy = true;
 
 	// Packet transfer already in progress?
-	/*
-	   Note: Interrupt needs to be disabled whilst updating the queue.
-	   This call does a bit more than that unfortunately.
-	   Calling portDISABLE_INTERRUPTS() doesn't do the job.
-	 */
-	// auto err = spi_device_acquire_bus(req.device->config.handle, portMAX_DELAY);
-	// if(err) {
-	// 	debug_e("[HSPI] spi_device_acquire_bus failed, %d", err);
-	// }
+	esp_intr_disable(intr_handle);
 	if(trans.busy) {
+		debug_i("[HSPI] Queue transaction, cur %p, new %p", trans.request, &req);
 		// Tack new packet onto end of chain
 		auto pkt = trans.request;
 		while(pkt->next) {
@@ -403,11 +395,8 @@ void Controller::execute(Request& req)
 		// Not currently running, so do this one now
 		trans.request = &req;
 		startRequest();
-		if(errcode) {
-			debug_e("[HSPI] TRANSACTION FAILURE %d", errcode);
-		}
 	}
-	// spi_device_release_bus(req.device->config.handle);
+	esp_intr_enable(intr_handle);
 
 	if(!req.async) {
 		// Block and poll
@@ -451,11 +440,6 @@ void IRAM_ATTR Controller::startRequest()
 	trans.bitOrder = dev.bitOrder;
 	trans.busy = true;
 
-	auto& t = esp_trans->ext;
-
-	t.base.user = this;
-	t.base.flags = SPI_TRANS_VARIABLE_CMD | SPI_TRANS_VARIABLE_ADDR | SPI_TRANS_VARIABLE_DUMMY;
-
 	// TODO: Driver won't let us directly change DUPLEX mode on a per-transaction basis
 	// If necessary we can hack this using HAL calls
 	spi_line_mode_t line_mode;
@@ -486,13 +470,11 @@ void IRAM_ATTR Controller::startRequest()
 	auto host_id = spi_host_device_t(getHost());
 	spi_dev_t* hw = SPI_LL_GET_HW(host_id);
 
-	// errcode = spi_device_queue_trans_from_isr(dev.config.handle, &t.base);
 	auto& cfg = dev.config;
 	bool selected_device_changed = true; // TODO
-	bool half_duplex = trans.ioMode == IoMode::SPI || trans.ioMode == IoMode::SPI3WIRE;
-	bool lsb_first = (dev.bitOrder != MSBFIRST);
+	bool half_duplex = !(trans.ioMode == IoMode::SPI || trans.ioMode == IoMode::SPI3WIRE);
+	bool lsb_first = (trans.bitOrder != MSBFIRST);
 	if(selected_device_changed) {
-		// void spi_hal_setup_device(spi_hal_context_t *hal, const spi_hal_dev_config_t *dev)
 		// Configure clock settings
 #if SOC_SPI_AS_CS_SUPPORTED
 		spi_ll_master_set_cksel(hw, dev->cs_pin_id, 0);
@@ -505,7 +487,7 @@ void IRAM_ATTR Controller::startRequest()
 		spi_ll_master_set_mode(hw, unsigned(dev.clockMode));
 		// Configure misc stuff
 		spi_ll_set_half_duplex(hw, half_duplex);
-		spi_ll_set_sio_mode(hw, (trans.ioMode == IoMode::SPI3WIRE) ? 1 : 0);
+		spi_ll_set_sio_mode(hw, trans.ioMode == IoMode::SPI3WIRE);
 		// Configure CS pin and timing
 		spi_ll_master_set_cs_setup(hw, 0);
 		spi_ll_master_set_cs_hold(hw, 1); // Required in most cases
@@ -571,10 +553,9 @@ void IRAM_ATTR Controller::startRequest()
 	// }
 
 	spi_ll_set_addr_bitlen(hw, req.addrLen);
-	spi_ll_set_command_bitlen(hw, req.cmdLen);
 
+	spi_ll_set_command_bitlen(hw, req.cmdLen);
 	spi_ll_set_command(hw, req.cmd, req.cmdLen, lsb_first);
-	spi_ll_set_address(hw, req.addr, req.addrLen, lsb_first);
 
 	// Configure keep active CS
 	spi_ll_master_keep_cs(hw, 0);
@@ -596,8 +577,6 @@ void IRAM_ATTR Controller::nextTransaction()
 	auto& req = *trans.request;
 	auto& dev = *req.device;
 
-	auto& t = esp_trans->ext;
-
 	// If there's too much data to fit in a single transaction, trim it down
 	auto sizeAlign = [&](size_t len) {
 		if(len <= hardwareBufferSize) {
@@ -611,54 +590,53 @@ void IRAM_ATTR Controller::nextTransaction()
 
 	// Setup outgoing data (MOSI)
 	uint32_t tx_bitlen{0};
-	void* tx_buffer;
 	unsigned outlen = req.out.length - trans.outOffset;
 	if(outlen != 0) {
 		if(req.out.isPointer) {
 			outlen = sizeAlign(outlen);
 			auto outptr = req.out.ptr8 + trans.outOffset;
 			if(esp_ptr_dma_capable(outptr) && IS_ALIGNED(outptr)) {
-				tx_buffer = outptr;
+				trans.tx_buffer = outptr;
 			} else {
 				memcpy(dmaBuffer.get(), outptr, outlen);
-				tx_buffer = dmaBuffer.get();
+				trans.tx_buffer = dmaBuffer.get();
 			}
 		} else {
 			dmaBuffer[0] = req.out.data32;
-			tx_buffer = dmaBuffer.get();
+			trans.tx_buffer = dmaBuffer.get();
 		}
 		tx_bitlen = outlen * 8;
 		trans.outOffset += outlen;
 	} else {
-		tx_buffer = nullptr;
+		trans.tx_buffer = nullptr;
 		tx_bitlen = 0;
 	}
 
 	// Setup incoming data (MISO)
 	uint32_t rx_bitlen{0};
-	void* rx_buffer;
 	unsigned inlen = req.in.length - trans.inOffset;
 	if(inlen != 0) {
 		if(req.in.isPointer) {
 			inlen = sizeAlign(inlen);
 			auto inptr = req.in.ptr8 + trans.inOffset;
 			if(esp_ptr_dma_capable(inptr) && IS_ALIGNED(inptr)) {
-				rx_buffer = inptr;
+				trans.rx_buffer = inptr;
 			} else {
-				rx_buffer = dmaBuffer.get();
+				trans.rx_buffer = dmaBuffer.get();
 			}
 		} else {
-			rx_buffer = dmaBuffer.get();
+			trans.rx_buffer = dmaBuffer.get();
 		}
 		trans.inlen = inlen;
 		rx_bitlen = inlen * 8;
-		t.base.length = std::max(t.base.length, t.base.rxlength);
+		// t.base.length = std::max(t.base.length, t.base.rxlength);
 	} else {
-		rx_buffer = nullptr;
+		trans.rx_buffer = nullptr;
+		trans.inlen = 0;
 		rx_bitlen = 0;
 	}
 
-	bool half_duplex = trans.ioMode == IoMode::SPI || trans.ioMode == IoMode::SPI3WIRE;
+	bool half_duplex = !(trans.ioMode == IoMode::SPI || trans.ioMode == IoMode::SPI3WIRE);
 
 	auto host_id = spi_host_device_t(getHost());
 	spi_dev_t* hw = SPI_LL_GET_HW(host_id);
@@ -671,7 +649,8 @@ void IRAM_ATTR Controller::nextTransaction()
 	}
 
 	// Setup address
-	t.base.addr = trans.addr;
+	bool lsb_first = (trans.bitOrder != MSBFIRST);
+	spi_ll_set_address(hw, trans.addr, req.addrLen, lsb_first);
 	trans.addr += std::max(outlen, inlen);
 
 #ifdef HSPI_ENABLE_STATS
@@ -681,8 +660,9 @@ void IRAM_ATTR Controller::nextTransaction()
 	// Fill DMA descriptors
 	const spi_bus_attr_t* bus_attr = spi_bus_get_attr(host_id);
 
-	if(rx_buffer) {
-		dma_desc_setup_link(bus_attr->dmadesc_rx, rx_buffer, trans.inlen, true);
+	if(trans.rx_buffer) {
+		// debug_i("[HSPI] RX DMA %u", inlen);
+		dma_desc_setup_link(bus_attr->dmadesc_rx, trans.rx_buffer, inlen, true);
 		spi_dma_ll_rx_reset(hw, bus_attr->rx_dma_chan);
 		spi_ll_dma_rx_fifo_reset(hw);
 		spi_ll_infifo_full_clr(hw);
@@ -698,8 +678,9 @@ void IRAM_ATTR Controller::nextTransaction()
 #endif
 	}
 
-	if(tx_buffer) {
-		dma_desc_setup_link(bus_attr->dmadesc_tx, tx_buffer, outlen, false);
+	if(trans.tx_buffer) {
+		// debug_i("[HSPI] TX DMA %u", outlen);
+		dma_desc_setup_link(bus_attr->dmadesc_tx, trans.tx_buffer, outlen, false);
 		spi_dma_ll_tx_reset(hw, bus_attr->tx_dma_chan);
 		spi_ll_dma_tx_fifo_reset(hw);
 		spi_ll_outfifo_empty_clr(hw);
@@ -708,12 +689,15 @@ void IRAM_ATTR Controller::nextTransaction()
 	}
 
 	// in ESP32 these registers should be configured after the DMA is set
-	if((!half_duplex && rx_buffer) || tx_buffer) {
+	if((!half_duplex && trans.rx_buffer) || trans.tx_buffer) {
+		// debug_i("[HSPI] ENABLE MOSI");
 		spi_ll_enable_mosi(hw, 1);
 	} else {
+		// debug_i("[HSPI] DISABLE MOSI");
 		spi_ll_enable_mosi(hw, 0);
 	}
-	spi_ll_enable_miso(hw, rx_buffer ? 1 : 0);
+	// debug_i("[HSPI] rx_buffer %p", trans.rx_buffer);
+	spi_ll_enable_miso(hw, trans.rx_buffer ? 1 : 0);
 
 	//
 	dev.transferStarting(req);
@@ -729,9 +713,13 @@ void IRAM_ATTR Controller::nextTransaction()
  */
 void IRAM_ATTR Controller::transactionDone()
 {
-	auto host_id = spi_host_device_t(getHost());
-	spi_dev_t* hw = SPI_LL_GET_HW(host_id);
+	spi_dev_t* hw = SPI_LL_GET_HW(getHost());
 	assert(spi_ll_usr_is_done(hw));
+	spi_ll_clear_int_stat(hw);
+
+	if(trans.request == nullptr) {
+		return;
+	}
 
 #if CONFIG_IDF_TARGET_ESP32
 	// This workaround is only for esp32, where tx_dma_chan and rx_dma_chan are always same
@@ -747,7 +735,7 @@ void IRAM_ATTR Controller::transactionDone()
 
 	// Read incoming data
 	if(trans.inlen != 0) {
-		if(esp_trans->ext.base.rx_buffer == dmaBuffer.get()) {
+		if(trans.rx_buffer == dmaBuffer.get()) {
 			if(req.in.isPointer) {
 				memcpy(req.in.ptr8 + trans.inOffset, dmaBuffer.get(), trans.inlen);
 			} else {

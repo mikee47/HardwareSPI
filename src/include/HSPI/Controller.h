@@ -248,6 +248,10 @@ private:
 		uint8_t addrShift;	  ///< How many bits to shift address left
 		uint32_t addrCmdMask; ///< In SDI/SQI modes this is combined with address
 #endif
+#ifdef ARCH_ESP32
+		void* tx_buffer;
+		void* rx_buffer;
+#endif
 	};
 	Transaction trans{};
 };

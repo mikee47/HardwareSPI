@@ -48,8 +48,6 @@ struct DeviceConfig {
 	spi_hal_timing_conf_t timing;
 };
 
-struct EspTransaction;
-
 class ControllerBase
 {
 public:
@@ -67,7 +65,6 @@ protected:
 	};
 
 	intr_handle_data_t* intr_handle;
-	std::unique_ptr<EspTransaction> esp_trans;
 	std::unique_ptr<uint32_t[]> dmaBuffer;
 	uint8_t deviceCount{0};
 	std::bitset<8> chipSelectsInUse; ///< Ensures each CS is used only once
