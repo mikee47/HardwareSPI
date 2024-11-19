@@ -396,9 +396,10 @@ void Controller::execute(Request& req)
 		trans.request = &req;
 		startRequest();
 	}
-	esp_intr_enable(intr_handle);
 
-	if(!req.async) {
+	if(req.async) {
+		esp_intr_enable(intr_handle);
+	} else {
 		// Block and poll
 		wait(req);
 	}
@@ -410,7 +411,11 @@ void Controller::wait(Request& request)
 #ifdef HSPI_ENABLE_STATS
 		CpuCycleTimer timer;
 #endif
+		spi_dev_t* hw = SPI_LL_GET_HW(getHost());
 		do {
+			if(spi_ll_usr_is_done(hw)) {
+				transactionDone();
+			}
 		} while(request.busy);
 #ifdef HSPI_ENABLE_STATS
 		stats.waitCycles += timer.elapsedTicks();
