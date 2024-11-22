@@ -482,7 +482,7 @@ void IRAM_ATTR Controller::startRequest()
 	if(selected_device_changed) {
 		// Configure clock settings
 #if SOC_SPI_AS_CS_SUPPORTED
-		spi_ll_master_set_cksel(hw, dev->cs_pin_id, 0);
+		spi_ll_master_set_cksel(hw, cfg.cs_id, 0);
 #endif
 		spi_ll_master_set_pos_cs(hw, cfg.cs_id, 0);
 		spi_ll_master_set_clock_by_reg(hw, &cfg.timing.clock_reg);
@@ -571,14 +571,6 @@ void IRAM_ATTR Controller::startRequest()
 
 void IRAM_ATTR Controller::nextTransaction()
 {
-#if CONFIG_IDF_TARGET_ESP32
-	if(bus_attr->dma_enabled && (cur_trans_buf->buffer_to_rcv || cur_trans_buf->buffer_to_send)) {
-		// mark channel as active, so that the DMA will not be reset by the slave
-		// This workaround is only for esp32, where tx_dma_chan and rx_dma_chan are always same
-		spicommon_dmaworkaround_transfer_active(bus_attr->tx_dma_chan);
-	}
-#endif //#if CONFIG_IDF_TARGET_ESP32
-
 	auto& req = *trans.request;
 	auto& dev = *req.device;
 
@@ -665,6 +657,14 @@ void IRAM_ATTR Controller::nextTransaction()
 	// Fill DMA descriptors
 	const spi_bus_attr_t* bus_attr = spi_bus_get_attr(host_id);
 
+#if CONFIG_IDF_TARGET_ESP32
+	if(trans.rx_buffer || trans.tx_buffer) {
+		// mark channel as active, so that the DMA will not be reset by the slave
+		// This workaround is only for esp32, where tx_dma_chan and rx_dma_chan are always same
+		spicommon_dmaworkaround_transfer_active(bus_attr->tx_dma_chan);
+	}
+#endif
+
 	if(trans.rx_buffer) {
 		// debug_i("[HSPI] RX DMA %u", inlen);
 		dma_desc_setup_link(bus_attr->dmadesc_rx, trans.rx_buffer, inlen, true);
@@ -677,8 +677,8 @@ void IRAM_ATTR Controller::nextTransaction()
 #if CONFIG_IDF_TARGET_ESP32
 		// DMA temporary workaround: let RX DMA work somehow to avoid the issue in ESP32 v0/v1 silicon
 		if(!half_duplex) {
-			spi_ll_dma_rx_enable(hal->hw, 1);
-			spi_dma_ll_rx_start(hal->dma_in, hal->rx_dma_chan, 0);
+			spi_ll_dma_rx_enable(hw, 1);
+			spi_dma_ll_rx_start(hw, bus_attr->rx_dma_chan, 0);
 		}
 #endif
 	}
@@ -718,7 +718,8 @@ void IRAM_ATTR Controller::nextTransaction()
  */
 void IRAM_ATTR Controller::transactionDone()
 {
-	spi_dev_t* hw = SPI_LL_GET_HW(getHost());
+	auto host_id = spi_host_device_t(getHost());
+	spi_dev_t* hw = SPI_LL_GET_HW(host_id);
 	assert(spi_ll_usr_is_done(hw));
 	spi_ll_clear_int_stat(hw);
 
@@ -728,6 +729,7 @@ void IRAM_ATTR Controller::transactionDone()
 
 #if CONFIG_IDF_TARGET_ESP32
 	// This workaround is only for esp32, where tx_dma_chan and rx_dma_chan are always same
+	const spi_bus_attr_t* bus_attr = spi_bus_get_attr(host_id);
 	spicommon_dmaworkaround_idle(bus_attr->tx_dma_chan);
 #endif
 
