@@ -23,7 +23,11 @@
 #include <memory>
 #include <cstdint>
 #include <soc/soc_caps.h>
+
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-parameter"
 #include <hal/spi_hal.h>
+#pragma GCC diagnostic pop
 
 struct intr_handle_data_t;
 
