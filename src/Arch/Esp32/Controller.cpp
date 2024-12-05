@@ -125,7 +125,7 @@ ControllerBase::~ControllerBase()
 {
 }
 
-uint8_t ControllerBase::getHost() const
+uint8_t __forceinline IRAM_ATTR ControllerBase::getHost() const
 {
 	return unsigned(static_cast<const Controller*>(this)->getBusId()) - 1;
 }
@@ -382,9 +382,12 @@ void Controller::execute(Request& req)
 	req.busy = true;
 
 	// Packet transfer already in progress?
-	esp_intr_disable(intr_handle);
+	if(interruptsEnabled) {
+		esp_intr_disable(intr_handle);
+		interruptsEnabled = false;
+	}
 	if(trans.busy) {
-		debug_i("[HSPI] Queue transaction, cur %p, new %p", trans.request, &req);
+		debug_d("[HSPI] Queue transaction, cur %p, new %p", trans.request, &req);
 		// Tack new packet onto end of chain
 		auto pkt = trans.request;
 		while(pkt->next) {
@@ -399,6 +402,7 @@ void Controller::execute(Request& req)
 
 	if(req.async) {
 		esp_intr_enable(intr_handle);
+		interruptsEnabled = true;
 	} else {
 		// Block and poll
 		wait(req);
@@ -413,7 +417,7 @@ void Controller::wait(Request& request)
 #endif
 		spi_dev_t* hw = SPI_LL_GET_HW(getHost());
 		do {
-			if(spi_ll_usr_is_done(hw)) {
+			if(!interruptsEnabled && spi_ll_usr_is_done(hw)) {
 				transactionDone();
 			}
 		} while(request.busy);

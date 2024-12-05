@@ -43,8 +43,8 @@ struct SpiPins {
 	uint8_t sck{SPI_PIN_DEFAULT};
 	uint8_t miso{SPI_PIN_DEFAULT}; ///< or IO0
 	uint8_t mosi{SPI_PIN_DEFAULT}; ///< or IO1
-	uint8_t io2{SPI_PIN_NONE};	   ///< or WP (Write Protect)
-	uint8_t io3{SPI_PIN_NONE};	   ///< or HD (Hold) for flash devices
+	uint8_t io2{SPI_PIN_NONE};	 ///< or WP (Write Protect)
+	uint8_t io3{SPI_PIN_NONE};	 ///< or HD (Hold) for flash devices
 };
 
 /**
@@ -138,17 +138,17 @@ public:
 	 *
 	 * On successful call to begin() returns actual bus in use.
 	 */
-	SpiBus getBusId() const
+	SpiBus __forceinline getBusId() const
 	{
 		return busId;
 	}
 
 #ifdef HSPI_ENABLE_STATS
 	struct Stats {
-		uint32_t requestCount;	 ///< Completed requests
+		uint32_t requestCount;   ///< Completed requests
 		uint32_t transCount;	 ///< Completed SPI transactions
 		uint32_t waitCycles;	 ///< Total blocking CPU cycles
-		uint32_t tasksQueued;	 ///< Number of times task callback registered for async execution (no interrupts)
+		uint32_t tasksQueued;	///< Number of times task callback registered for async execution (no interrupts)
 		uint32_t tasksCancelled; ///< Tasks cancelled by blocking requests
 
 		void clear() volatile
@@ -237,7 +237,7 @@ private:
 #else
 		uint32_t addr;		///< Address for next transfer
 		uint32_t outOffset; ///< Where to read data for next outgoing transfer
-		uint32_t inOffset;	///< Where to write incoming data from current transfer
+		uint32_t inOffset;  ///< Where to write incoming data from current transfer
 		uint16_t inlen;		///< Incoming data for current transfer
 		IoMode ioMode;
 #endif
@@ -245,7 +245,7 @@ private:
 		bool bitOrder;
 		volatile bool busy;
 #ifdef ARCH_ESP8266
-		uint8_t addrShift;	  ///< How many bits to shift address left
+		uint8_t addrShift;	///< How many bits to shift address left
 		uint32_t addrCmdMask; ///< In SDI/SQI modes this is combined with address
 #endif
 #ifdef ARCH_ESP32

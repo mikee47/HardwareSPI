@@ -73,6 +73,7 @@ protected:
 	uint8_t deviceCount{0};
 	std::bitset<8> chipSelectsInUse; ///< Ensures each CS is used only once
 	Flags flags{};
+	bool interruptsEnabled{false};
 	int errcode{};
 };
 
