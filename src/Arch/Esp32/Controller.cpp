@@ -39,13 +39,23 @@
 
 namespace HSPI
 {
-constexpr size_t hardwareBufferSize{SPI_MAX_DMA_LEN};
-
 #ifdef HSPI_ENABLE_STATS
 volatile Controller::Stats Controller::stats;
 #endif
 
-const SpiPins defaultPins[]{
+/*
+ * Aligned data can be transferred using linked DMA transfers.
+ * The length of this list is determined by this value.
+ * See `dma_desc_setup_link`.
+ */
+constexpr size_t maxDmaTransferSize{0x10000};
+
+/*
+ * Mis-aligned data is handled by copying to an internal buffer.
+ */
+constexpr size_t hardwareBufferSize{SPI_MAX_DMA_LEN};
+
+const HSPI::SpiPins defaultPins[]{
 	{
 		.sck = SPI_IOMUX_PIN_NUM_CLK,
 		.miso = SPI_IOMUX_PIN_NUM_MISO,
@@ -148,7 +158,9 @@ bool Controller::begin()
 		.sclk_io_num = getPinValue(pins.sck),
 		.quadwp_io_num = getPinValue(pins.io2),
 		.quadhd_io_num = getPinValue(pins.io3),
-		.intr_flags = ESP_INTR_FLAG_LOWMED, // ESP_INTR_FLAG_IRAM,
+		.max_transfer_sz = maxDmaTransferSize,
+		.flags = SPICOMMON_BUSFLAG_MASTER,
+		.intr_flags = ESP_INTR_FLAG_IRAM,
 	};
 
 	debug_i("[HSPI] host %u, mosi %u, miso %u, sclk %u, io2 %u, io3 %u", host_id, buscfg.mosi_io_num,
@@ -307,7 +319,7 @@ void Controller::configChanged(Device& dev)
 	dev.config.changed = true;
 }
 
-void Controller::updateConfig(Device& dev)
+void Controller::updateConfig(Device&)
 {
 }
 
@@ -483,7 +495,7 @@ void IRAM_ATTR Controller::startRequest()
 		spi_ll_master_keep_cs(hw, 0);
 
 		// set transaction line mode
-		spi_line_mode_t line_mode;
+		spi_line_mode_t line_mode{};
 		switch(trans.ioMode) {
 		case IoMode::SPI:
 		case IoMode::SPIHD:
@@ -578,17 +590,17 @@ void IRAM_ATTR Controller::nextTransaction()
 	unsigned outlen = req.out.length - trans.outOffset;
 	if(outlen != 0) {
 		if(req.out.isPointer) {
-			outlen = sizeAlign(outlen);
 			auto outptr = req.out.ptr8 + trans.outOffset;
 			if(esp_ptr_dma_capable(outptr) && IS_ALIGNED(outptr)) {
+				outlen = std::min(outlen, maxDmaTransferSize);
 				trans.tx_buffer = outptr;
 			} else {
+				outlen = sizeAlign(outlen);
 				memcpy(dmaBuffer.get(), outptr, outlen);
 				trans.tx_buffer = dmaBuffer.get();
 			}
 		} else {
-			dmaBuffer[0] = req.out.data32;
-			trans.tx_buffer = dmaBuffer.get();
+			trans.tx_buffer = &req.out.data32;
 		}
 		tx_bitlen = outlen * 8;
 		trans.outOffset += outlen;
@@ -602,15 +614,16 @@ void IRAM_ATTR Controller::nextTransaction()
 	unsigned inlen = req.in.length - trans.inOffset;
 	if(inlen != 0) {
 		if(req.in.isPointer) {
-			inlen = sizeAlign(inlen);
 			auto inptr = req.in.ptr8 + trans.inOffset;
 			if(esp_ptr_dma_capable(inptr) && IS_ALIGNED(inptr)) {
+				inlen = std::min(inlen, maxDmaTransferSize);
 				trans.rx_buffer = inptr;
 			} else {
+				inlen = sizeAlign(inlen);
 				trans.rx_buffer = dmaBuffer.get();
 			}
 		} else {
-			trans.rx_buffer = dmaBuffer.get();
+			trans.rx_buffer = &req.in.data32;
 		}
 		trans.inlen = inlen;
 		rx_bitlen = inlen * 8;
