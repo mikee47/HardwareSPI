@@ -65,6 +65,11 @@ inline constexpr IoModes operator|(IoMode a, IoMode b)
 	return IoModes(IoModes::bitVal(a) | IoModes::bitVal(b));
 }
 
+__forceinline bool isDuplex(IoMode mode)
+{
+	return mode == IoMode::SPI || mode == IoMode::SPI3WIRE;
+}
+
 /*
  * Details for each IO Mode
  *

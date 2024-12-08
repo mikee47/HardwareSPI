@@ -137,9 +137,6 @@ bool Controller::begin()
 		return false;
 	}
 
-	// bool spi_chan_claimed = spicommon_periph_claim(host_id, "spi master");
-	// SPI_CHECK(spi_chan_claimed, "host_id already in use", ESP_ERR_INVALID_STATE);
-
 	auto host_id = spi_host_device_t(getHost());
 
 	assignDefaultPins(defaultPins[host_id]);
@@ -307,6 +304,7 @@ void Controller::stopDevice(Device& dev)
 
 void Controller::configChanged(Device& dev)
 {
+	dev.config.changed = true;
 }
 
 void Controller::updateConfig(Device& dev)
@@ -315,6 +313,10 @@ void Controller::updateConfig(Device& dev)
 
 uint32_t Controller::setClockSpeed(Device& dev, uint32_t freq)
 {
+	if(dev.config.requestedSpeed == freq) {
+		return dev.speed;
+	}
+
 	auto host_id = spi_host_device_t(getHost());
 	auto bus_attr = spi_bus_get_attr(host_id);
 
@@ -326,7 +328,7 @@ uint32_t Controller::setClockSpeed(Device& dev, uint32_t freq)
 	auto ioMode = dev.getIoMode();
 	spi_hal_timing_param_t timing_param{
 		.clk_src_hz = clock_source_hz,
-		.half_duplex = !(ioMode == IoMode::SPI || ioMode == IoMode::SPI3WIRE),
+		.half_duplex = !isDuplex(ioMode),
 		.no_compensate = 0,
 		.expected_freq = freq,
 		.duty_cycle = 128,
@@ -342,6 +344,7 @@ uint32_t Controller::setClockSpeed(Device& dev, uint32_t freq)
 		debug_i("[HSPI] Requested clock %u, got %d", freq, real_freq);
 		cfg.timing.clock_source = SPI_CLK_SRC_DEFAULT;
 		dev.speed = real_freq;
+		cfg.changed = true;
 	}
 
 	return dev.speed;
@@ -429,6 +432,7 @@ void IRAM_ATTR Controller::startRequest()
 {
 	auto& req = *trans.request;
 	auto& dev = *req.device;
+	auto& cfg = dev.config;
 
 	if(selectDeviceCallback) {
 		selectDeviceCallback(dev.chipSelect, true);
@@ -443,41 +447,19 @@ void IRAM_ATTR Controller::startRequest()
 	trans.bitOrder = dev.bitOrder;
 	trans.busy = true;
 
-	spi_line_mode_t line_mode;
-	switch(trans.ioMode) {
-	case IoMode::SPI:
-	case IoMode::SPIHD:
-	case IoMode::SPI3WIRE:
-		line_mode = {1, 1, 1};
-		break;
-	case IoMode::DUAL:
-		line_mode = {1, 1, 2};
-		break;
-	case IoMode::DIO:
-		line_mode = {1, 2, 2};
-		break;
-	case IoMode::SDI:
-		line_mode = {2, 2, 2};
-		break;
-	case IoMode::QUAD:
-		line_mode = {1, 1, 4};
-		break;
-	case IoMode::QIO:
-		line_mode = {1, 4, 4};
-		break;
-	case IoMode::SQI:
-		line_mode = {4, 4, 4};
-		break;
-	}
+	bool activeDeviceChanged = (&dev != activeDevice);
+	activeDevice = &dev;
+	bool configChanged = activeDeviceChanged || cfg.changed;
+	cfg.changed = false;
 
-	auto host_id = spi_host_device_t(getHost());
-	spi_dev_t* hw = SPI_LL_GET_HW(host_id);
+	spi_dev_t* hw = SPI_LL_GET_HW(getHost());
 
-	auto& cfg = dev.config;
-	bool selected_device_changed = true; // TODO
-	bool half_duplex = !(trans.ioMode == IoMode::SPI || trans.ioMode == IoMode::SPI3WIRE);
-	bool lsb_first = (trans.bitOrder != MSBFIRST);
-	if(selected_device_changed) {
+	// We should be done with the transmission
+	spi_ll_clear_int_stat(hw);
+	assert(spi_ll_get_running_cmd(hw) == 0);
+
+	bool half_duplex = !isDuplex(trans.ioMode);
+	if(configChanged) {
 		// Configure clock settings
 #if SOC_SPI_AS_CS_SUPPORTED
 		spi_ll_master_set_cksel(hw, cfg.cs_id, 0);
@@ -485,8 +467,8 @@ void IRAM_ATTR Controller::startRequest()
 		spi_ll_master_set_pos_cs(hw, cfg.cs_id, 0);
 		spi_ll_master_set_clock_by_reg(hw, &cfg.timing.clock_reg);
 		// Configure bit order
-		spi_ll_set_rx_lsbfirst(hw, lsb_first);
-		spi_ll_set_tx_lsbfirst(hw, lsb_first);
+		spi_ll_set_rx_lsbfirst(hw, trans.bitOrder != MSBFIRST);
+		spi_ll_set_tx_lsbfirst(hw, trans.bitOrder != MSBFIRST);
 		spi_ll_master_set_mode(hw, unsigned(dev.clockMode));
 		// Configure misc stuff
 		spi_ll_set_half_duplex(hw, half_duplex);
@@ -497,27 +479,49 @@ void IRAM_ATTR Controller::startRequest()
 		spi_ll_master_select_cs(hw, cfg.cs_id);
 		// Clock
 		spi_ll_set_clk_source(hw, cfg.timing.clock_source);
+		// Configure keep active CS
+		spi_ll_master_keep_cs(hw, 0);
+
+		// set transaction line mode
+		spi_line_mode_t line_mode;
+		switch(trans.ioMode) {
+		case IoMode::SPI:
+		case IoMode::SPIHD:
+		case IoMode::SPI3WIRE:
+			line_mode = {1, 1, 1};
+			break;
+		case IoMode::DUAL:
+			line_mode = {1, 1, 2};
+			break;
+		case IoMode::DIO:
+			line_mode = {1, 2, 2};
+			break;
+		case IoMode::SDI:
+			line_mode = {2, 2, 2};
+			break;
+		case IoMode::QUAD:
+			line_mode = {1, 1, 4};
+			break;
+		case IoMode::QIO:
+			line_mode = {1, 4, 4};
+			break;
+		case IoMode::SQI:
+			line_mode = {4, 4, 4};
+			break;
+		}
+		spi_ll_master_set_line_mode(hw, line_mode);
 	}
 
-	// void spi_hal_setup_trans(spi_hal_context_t *hal, const spi_hal_dev_config_t *dev, const spi_hal_trans_config_t *trans)
-	// clear int bit
-	spi_ll_clear_int_stat(hw);
-	// We should be done with the transmission.
-	HAL_ASSERT(spi_ll_get_running_cmd(hw) == 0);
-	// set transaction line mode
-	spi_ll_master_set_line_mode(hw, line_mode);
-
+	// SPI iface needs to be configured for a delay in some cases
 	int extra_dummy = 0;
 	// when no_dummy is not set and in half-duplex mode, sets the dummy bit if RX phase exist
 	bool no_compensate = false; // IDF has this as device parameter
 	if(req.in.length && !no_compensate && half_duplex) {
 		extra_dummy = cfg.timing.timing_dummy;
 	}
-
-	// SPI iface needs to be configured for a delay in some cases.
-	// configure dummy bits
 	spi_ll_set_dummy(hw, extra_dummy + req.dummyLen);
 
+#if 0
 	uint32_t miso_delay_num = 0;
 	uint32_t miso_delay_mode = 0;
 	if(cfg.timing.timing_miso_delay < 0) {
@@ -543,27 +547,13 @@ void IRAM_ATTR Controller::startRequest()
 		miso_delay_mode = 0;
 	}
 	spi_ll_set_miso_delay(hw, miso_delay_mode, miso_delay_num);
-
-	//Configure bit sizes, load addr and command
-	// int cmdlen = trans->cmd_bits;
-	// int addrlen = trans->addr_bits;
-	// if(!dev->half_duplex && dev->cs_setup != 0) {
-	// 	/* The command and address phase is not compatible with cs_ena_pretrans
-	//      * in full duplex mode.
-	//      */
-	// 	cmdlen = 0;
-	// 	addrlen = 0;
-	// }
+#endif
 
 	spi_ll_set_addr_bitlen(hw, req.addrLen);
 
 	spi_ll_set_command_bitlen(hw, req.cmdLen);
-	spi_ll_set_command(hw, req.cmd, req.cmdLen, lsb_first);
+	spi_ll_set_command(hw, req.cmd, req.cmdLen, trans.bitOrder != MSBFIRST);
 
-	// Configure keep active CS
-	spi_ll_master_keep_cs(hw, 0);
-
-	//
 	nextTransaction();
 }
 
@@ -631,7 +621,7 @@ void IRAM_ATTR Controller::nextTransaction()
 		rx_bitlen = 0;
 	}
 
-	bool half_duplex = !(trans.ioMode == IoMode::SPI || trans.ioMode == IoMode::SPI3WIRE);
+	bool half_duplex = !isDuplex(trans.ioMode);
 
 	auto host_id = spi_host_device_t(getHost());
 	spi_dev_t* hw = SPI_LL_GET_HW(host_id);
@@ -644,8 +634,7 @@ void IRAM_ATTR Controller::nextTransaction()
 	}
 
 	// Setup address
-	bool lsb_first = (trans.bitOrder != MSBFIRST);
-	spi_ll_set_address(hw, trans.addr, req.addrLen, lsb_first);
+	spi_ll_set_address(hw, trans.addr, req.addrLen, trans.bitOrder != MSBFIRST);
 	trans.addr += std::max(outlen, inlen);
 
 #ifdef HSPI_ENABLE_STATS

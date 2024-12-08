@@ -47,9 +47,10 @@ enum class SpiBus {
 };
 
 struct DeviceConfig {
-	uint8_t mode;
 	uint8_t cs_id;
+	bool changed;
 	spi_hal_timing_conf_t timing;
+	uint32_t requestedSpeed;
 };
 
 class ControllerBase
@@ -70,6 +71,7 @@ protected:
 
 	intr_handle_data_t* intr_handle;
 	std::unique_ptr<uint32_t[]> dmaBuffer;
+	Device* activeDevice{};
 	uint8_t deviceCount{0};
 	std::bitset<8> chipSelectsInUse; ///< Ensures each CS is used only once
 	Flags flags{};
