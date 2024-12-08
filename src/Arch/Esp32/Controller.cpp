@@ -264,13 +264,6 @@ bool Controller::startDevice(Device& dev, PinSet pinSet, uint8_t chipSelect, uin
 		return false;
 	}
 
-	setClockSpeed(dev, clockSpeed);
-
-	/*
-	 * TODO: if we have to change the apb clock among transactions,
-	 * re-calculate this each time the apb clock lock is locked.
-	 */
-
 	// Set CS pin, CS options
 	bool use_gpio = !(bus_attr->flags & SPICOMMON_BUSFLAG_IOMUX_PINS);
 
@@ -281,7 +274,8 @@ bool Controller::startDevice(Device& dev, PinSet pinSet, uint8_t chipSelect, uin
 	++deviceCount;
 	dev.pinSet = pinSet;
 	dev.chipSelect = chipSelect;
-	dev.speed = clockSpeed; // IDF doesn't report back actual clock speed
+
+	setClockSpeed(dev, clockSpeed);
 
 	debug_i("[HSPI] Bus %u, CS #%u acquired", unsigned(busId), chipSelect);
 
@@ -449,8 +443,6 @@ void IRAM_ATTR Controller::startRequest()
 	trans.bitOrder = dev.bitOrder;
 	trans.busy = true;
 
-	// TODO: Driver won't let us directly change DUPLEX mode on a per-transaction basis
-	// If necessary we can hack this using HAL calls
 	spi_line_mode_t line_mode;
 	switch(trans.ioMode) {
 	case IoMode::SPI:
@@ -458,22 +450,24 @@ void IRAM_ATTR Controller::startRequest()
 	case IoMode::SPI3WIRE:
 		line_mode = {1, 1, 1};
 		break;
-	case IoMode::SDI:
-	case IoMode::DIO:
-		line_mode = {2, 2, 2};
-		break;
 	case IoMode::DUAL:
 		line_mode = {1, 1, 2};
 		break;
-	case IoMode::SQI:
-	case IoMode::QIO:
-		line_mode = {4, 4, 4};
+	case IoMode::DIO:
+		line_mode = {1, 2, 2};
+		break;
+	case IoMode::SDI:
+		line_mode = {2, 2, 2};
 		break;
 	case IoMode::QUAD:
 		line_mode = {1, 1, 4};
 		break;
-	default:
-		assert(false);
+	case IoMode::QIO:
+		line_mode = {1, 4, 4};
+		break;
+	case IoMode::SQI:
+		line_mode = {4, 4, 4};
+		break;
 	}
 
 	auto host_id = spi_host_device_t(getHost());
