@@ -187,6 +187,12 @@ public:
 		controller.execute(request);
 	}
 
+	bool IRAM_ATTR queueFromISR(Request& request)
+	{
+		request.device = this;
+		return controller.queueFromISR(request);
+	}
+
 	/**
 	 * @brief Set a callback to be invoked before a request is started, and when it has finished
 	 * @param callback Invoked in interrupt context, MUST be in IRAM

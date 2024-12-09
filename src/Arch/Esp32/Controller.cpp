@@ -173,7 +173,9 @@ bool Controller::begin()
 
 	// interrupts are not allowed on SPI1 bus
 	if(host_id != SPI1_HOST) {
-		err = esp_intr_alloc(spi_periph_signal[host_id].irq, ESP_INTR_FLAG_IRAM | ESP_INTR_FLAG_INTRDISABLED,
+		// Use priority level >= LOWMED (1-3) so `queueFromISR` works OK
+		err = esp_intr_alloc(spi_periph_signal[host_id].irq,
+							 ESP_INTR_FLAG_IRAM | ESP_INTR_FLAG_LEVEL3 | ESP_INTR_FLAG_INTRDISABLED,
 							 intr_handler_t(isr), this, &intr_handle);
 		debug_i("[HSPI] intr_alloc %u -> %u", spi_periph_signal[host_id].irq, err);
 	}
@@ -401,6 +403,44 @@ void Controller::execute(Request& req)
 		// Block and poll
 		wait(req);
 	}
+}
+
+bool IRAM_ATTR Controller::queueFromISR(Request& req)
+{
+	if(!flags.initialised || req.device == nullptr || req.device->pinSet == PinSet::none) {
+		return false;
+	}
+
+	if(req.busy || !req.async) {
+		return false;
+	}
+
+	req.next = nullptr;
+	req.busy = true;
+
+	if(interruptsEnabled) {
+		esp_intr_disable(intr_handle);
+	}
+	// Packet transfer already in progress?
+	if(trans.busy) {
+		// Tack new packet onto end of chain
+		auto pkt = trans.request;
+		while(pkt->next) {
+			pkt = pkt->next;
+		}
+		pkt->next = &req;
+		if(interruptsEnabled) {
+			esp_intr_enable(intr_handle);
+		}
+		return true;
+	}
+
+	// Start this request now
+	trans.request = &req;
+	startRequest();
+	esp_intr_enable(intr_handle);
+	interruptsEnabled = true;
+	return true;
 }
 
 void Controller::wait(Request& request)

@@ -182,7 +182,19 @@ public:
 protected:
 	friend Device;
 
+	/**
+	 * @brief Execute or queue a request
+	 */
 	virtual void execute(Request& request);
+
+	/**
+	 * @brief Queue a request from interrupt context
+	 *
+	 * - Request should be pre-configured outside of the ISR, where possible
+	 * - Request must be asynchronous
+	 * - Must be running at the same, or lower, priority than SPI interrupt
+	 */
+	virtual bool queueFromISR(Request& req);
 
 	/**
 	 * @brief Assign any default pins
