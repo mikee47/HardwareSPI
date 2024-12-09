@@ -177,7 +177,11 @@ bool Controller::begin()
 		err = esp_intr_alloc(spi_periph_signal[host_id].irq,
 							 ESP_INTR_FLAG_IRAM | ESP_INTR_FLAG_LEVEL3 | ESP_INTR_FLAG_INTRDISABLED,
 							 intr_handler_t(isr), this, &intr_handle);
-		debug_i("[HSPI] intr_alloc %u -> %u", spi_periph_signal[host_id].irq, err);
+		if(err) {
+			debug_e("[HSPI] intr_alloc %u failed, %d", spi_periph_signal[host_id].irq, err);
+			spi_bus_free(host_id);
+			return false;
+		}
 	}
 
 	const spi_bus_attr_t* bus_attr = spi_bus_get_attr(host_id);
@@ -396,12 +400,14 @@ void Controller::execute(Request& req)
 		startRequest();
 	}
 
-	if(req.async) {
-		esp_intr_enable(intr_handle);
-		interruptsEnabled = true;
-	} else {
+	if(!req.async) {
 		// Block and poll
 		wait(req);
+	}
+
+	if(trans.request) {
+		esp_intr_enable(intr_handle);
+		interruptsEnabled = true;
 	}
 }
 
@@ -438,8 +444,8 @@ bool IRAM_ATTR Controller::queueFromISR(Request& req)
 	// Start this request now
 	trans.request = &req;
 	startRequest();
-	esp_intr_enable(intr_handle);
 	interruptsEnabled = true;
+	esp_intr_enable(intr_handle);
 	return true;
 }
 
