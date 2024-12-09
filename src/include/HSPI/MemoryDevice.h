@@ -120,6 +120,7 @@ public:
 		Request req;
 		prepareWrite(req, address);
 		req.out.set32(value);
+		req.in.clear();
 		execute(req);
 	}
 
