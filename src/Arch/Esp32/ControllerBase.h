@@ -69,13 +69,15 @@ protected:
 		bool initialised : 1;
 	};
 
+	void enableSpiInterrupt(bool enable);
+
 	intr_handle_data_t* intr_handle;
 	std::unique_ptr<uint32_t[]> dmaBuffer;
 	Device* activeDevice{};
 	uint8_t deviceCount{0};
 	std::bitset<8> chipSelectsInUse; ///< Ensures each CS is used only once
 	Flags flags{};
-	bool interruptsEnabled{false};
+	volatile bool interruptsEnabled{false};
 };
 
 } // namespace HSPI

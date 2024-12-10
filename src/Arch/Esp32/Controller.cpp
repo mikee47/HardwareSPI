@@ -126,6 +126,19 @@ void dma_desc_setup_link(spi_dma_desc_t* dmadesc, void* data, uint32_t len, bool
 	desc.next = nullptr;
 }
 
+void __forceinline IRAM_ATTR ControllerBase::enableSpiInterrupt(bool enable)
+{
+	if(enable == interruptsEnabled) {
+		return;
+	}
+	if(enable) {
+		esp_intr_enable(intr_handle);
+	} else {
+		esp_intr_disable(intr_handle);
+	}
+	interruptsEnabled = enable;
+}
+
 ControllerBase::ControllerBase()
 {
 	dmaBuffer.reset(new uint32_t[hardwareBufferSize / sizeof(uint32_t)]);
@@ -381,12 +394,12 @@ void Controller::execute(Request& req)
 	req.next = nullptr;
 	req.busy = true;
 
+	// Block SPI interrupts and queueFromISR
+	auto intrstate = noInterrupts();
+
 	// Packet transfer already in progress?
-	if(interruptsEnabled) {
-		esp_intr_disable(intr_handle);
-		interruptsEnabled = false;
-	}
-	if(trans.busy) {
+	bool isActive = trans.busy;
+	if(isActive) {
 		debug_d("[HSPI] Queue transaction, cur %p, new %p", trans.request, &req);
 		// Tack new packet onto end of chain
 		auto pkt = trans.request;
@@ -394,7 +407,12 @@ void Controller::execute(Request& req)
 			pkt = pkt->next;
 		}
 		pkt->next = &req;
-	} else {
+	}
+
+	enableSpiInterrupt(req.async);
+	restoreInterrupts(intrstate);
+
+	if(!isActive) {
 		// Not currently running, so do this one now
 		trans.request = &req;
 		startRequest();
@@ -405,10 +423,7 @@ void Controller::execute(Request& req)
 		wait(req);
 	}
 
-	if(trans.request) {
-		esp_intr_enable(intr_handle);
-		interruptsEnabled = true;
-	}
+	enableSpiInterrupt(trans.request);
 }
 
 bool IRAM_ATTR Controller::queueFromISR(Request& req)
@@ -424,28 +439,27 @@ bool IRAM_ATTR Controller::queueFromISR(Request& req)
 	req.next = nullptr;
 	req.busy = true;
 
-	if(interruptsEnabled) {
-		esp_intr_disable(intr_handle);
-	}
+	auto intlevel = noInterrupts();
 	// Packet transfer already in progress?
-	if(trans.busy) {
+	auto isActive = trans.busy;
+	if(isActive) {
 		// Tack new packet onto end of chain
 		auto pkt = trans.request;
 		while(pkt->next) {
 			pkt = pkt->next;
 		}
 		pkt->next = &req;
-		if(interruptsEnabled) {
-			esp_intr_enable(intr_handle);
-		}
-		return true;
 	}
 
-	// Start this request now
-	trans.request = &req;
-	startRequest();
-	interruptsEnabled = true;
-	esp_intr_enable(intr_handle);
+	enableSpiInterrupt(true);
+	restoreInterrupts(intlevel);
+
+	if(!isActive) {
+		// Start this request now
+		trans.request = &req;
+		startRequest();
+	}
+
 	return true;
 }
 
