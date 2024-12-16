@@ -34,7 +34,7 @@ class MemoryDevice : public Device
 public:
 	using Device::Device;
 
-	virtual size_t getSize() const = 0;
+	virtual size_t getMemorySize() const = 0;
 
 	/**
 	  * @name Prepare a write request

@@ -36,7 +36,7 @@ class PSRAM64 : public MemoryDevice
 public:
 	using MemoryDevice::MemoryDevice;
 
-	size_t getSize() const override
+	size_t getMemorySize() const override
 	{
 		return 8 * 1024 * 1024;
 	}

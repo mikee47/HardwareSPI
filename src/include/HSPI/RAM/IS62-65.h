@@ -45,7 +45,7 @@ public:
 		Sequential = 0x40, ///< Access entire memory array (DEFAULT)
 	};
 
-	size_t getSize() const override
+	size_t getMemorySize() const override
 	{
 		return 256 * 1024;
 	}
