@@ -166,7 +166,7 @@ bool Controller::begin()
 	debug_i("[HSPI] host %u, mosi %u, miso %u, sclk %u, io2 %u, io3 %u", host_id, buscfg.mosi_io_num,
 			buscfg.miso_io_num, buscfg.sclk_io_num, buscfg.quadwp_io_num, buscfg.quadhd_io_num);
 
-	auto err = spi_bus_initialize(spi_host_device_t(unsigned(busId) - 1), &buscfg, SPI_DMA_CH_AUTO);
+	auto err = spi_bus_initialize(host_id, &buscfg, SPI_DMA_CH_AUTO);
 	if(err != ESP_OK) {
 		return false;
 	}
@@ -362,21 +362,6 @@ uint32_t Controller::setClockSpeed(Device& dev, uint32_t freq)
 	return dev.speed;
 }
 
-/*
- * With the ESP32 we have both regular FIFO operation and the alternative DMA operation. In both cases
- * a transaction is set up as usual, command, address, etc. with the only difference with the data
- * transfer. It's not only faster but there's no interrupt overhead and the processor doesn't need
- * to do any memory copies. The ESP32 can handle a single transfer of up to 4092 bytes.
- * If a request is larger than that we'll need to repeat it.
- *
- * We must use the ESP32 driver to allow this stack to co-exist with native IDF components such as SPI ethernet.
- * New requests cannot be started from interrupt context, so a task is queued to do this.
- * We probably only need 2 slots in the queue to handle this (one in flight, one being prepared).
- * 
- * Note: Polling mode is not suitable since our interrupt callback handler isn't invoked until `spi_device_polling_end`
- * is called.
- * 
- */
 void Controller::execute(Request& req)
 {
 	if(!flags.initialised || req.device == nullptr || req.device->pinSet == PinSet::none) {

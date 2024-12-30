@@ -76,7 +76,6 @@ protected:
 	std::bitset<8> chipSelectsInUse; ///< Ensures each CS is used only once
 	Flags flags{};
 	bool interruptsEnabled{false};
-	int errcode{};
 };
 
 } // namespace HSPI
